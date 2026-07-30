@@ -2708,6 +2708,18 @@ void BonusData::Initialize(ItemTemplate const* proto)
     CanDisenchant = (proto->GetFlags() & ITEM_FLAG_NO_DISENCHANT) == 0;
     CanScrap = (proto->GetFlags4() & ITEM_FLAG4_SCRAPABLE) != 0;
 
+    EffectCount = 0;
+    for (ItemEffectEntry const* itemEffect : proto->Effects)
+    {
+        if (EffectCount >= MAX_BONUS_ITEM_EFFECTS)
+            break;
+
+        Effects[EffectCount++] = itemEffect;
+    }
+
+    for (uint32 i = EffectCount; i < MAX_BONUS_ITEM_EFFECTS; ++i)
+        Effects[i] = nullptr;
+
     _state.SuffixPriority = std::numeric_limits<int32>::max();
     _state.AppearanceModPriority = std::numeric_limits<int32>::max();
     _state.ScalingStatDistributionPriority = std::numeric_limits<int32>::max();
@@ -2829,6 +2841,13 @@ void BonusData::AddBonus(uint32 type, int32 const (&values)[3])
             break;
         case ITEM_BONUS_OVERRIDE_CAN_SCRAP:
             CanScrap = values[0] != 0;
+            break;
+        case ITEM_BONUS_ITEM_EFFECT_ID:
+            // Skip unknown ids silently: bad hotfix data must not crash, and logging
+            // here would fire once per item instance.
+            if (ItemEffectEntry const* itemEffect = sItemEffectStore.LookupEntry(uint32(values[0])))
+                if (EffectCount < MAX_BONUS_ITEM_EFFECTS)
+                    Effects[EffectCount++] = itemEffect;
             break;
     }
 }
