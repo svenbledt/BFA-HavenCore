@@ -442,6 +442,7 @@ public:
 
     protected:
         void ApplyBonusList(uint32 itemBonusListId);
+        void SeedSpellCharges(uint32 firstEffect);
         BonusData _bonusData;
 
     private:

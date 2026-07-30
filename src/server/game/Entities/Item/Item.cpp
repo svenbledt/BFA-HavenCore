@@ -2426,8 +2426,10 @@ void Item::AddBonuses(uint32 bonusListID)
         std::vector<int32> bonusListIDs = m_itemData->BonusListIDs;
         bonusListIDs.push_back(bonusListID);
         SetUpdateFieldValue(m_values.ModifyValue(&Item::m_itemData).ModifyValue(&UF::ItemData::BonusListIDs), std::move(bonusListIDs));
+        uint32 const oldEffectCount = _bonusData.EffectCount;
         for (ItemBonusEntry const* bonus : *bonuses)
             _bonusData.AddBonus(bonus->Type, bonus->Value);
+        SeedSpellCharges(oldEffectCount);
         SetUpdateFieldValue(m_values.ModifyValue(&Item::m_itemData).ModifyValue(&UF::ItemData::ItemAppearanceModID), _bonusData.AppearanceModID);
     }
 }
@@ -2436,9 +2438,11 @@ void Item::SetBonuses(std::vector<int32> bonusListIDs)
 {
     SetUpdateFieldValue(m_values.ModifyValue(&Item::m_itemData).ModifyValue(&UF::ItemData::BonusListIDs), std::move(bonusListIDs));
 
+    uint32 const oldEffectCount = _bonusData.EffectCount;
     for (int32 bonusListID : *m_itemData->BonusListIDs)
         _bonusData.AddBonusList(bonusListID);
 
+    SeedSpellCharges(oldEffectCount);
     SetUpdateFieldValue(m_values.ModifyValue(&Item::m_itemData).ModifyValue(&UF::ItemData::ItemAppearanceModID), _bonusData.AppearanceModID);
 }
 
@@ -2447,6 +2451,18 @@ void Item::ClearBonuses()
     SetUpdateFieldValue(m_values.ModifyValue(&Item::m_itemData).ModifyValue(&UF::ItemData::BonusListIDs), std::vector<int32>());
     _bonusData.Initialize(GetTemplate());
     SetUpdateFieldValue(m_values.ModifyValue(&Item::m_itemData).ModifyValue(&UF::ItemData::ItemAppearanceModID), _bonusData.AppearanceModID);
+}
+
+// Create seeds charges from the template effects alone - every caller applies bonus lists
+// afterwards, so an effect arriving through ITEM_BONUS_ITEM_EFFECT_ID would keep a charge
+// slot of 0 and Spell::CheckItems would reject every cast with no charges remaining.
+// Slots below firstEffect keep what they hold: a live item's charges are spent over time
+// and must not reset when a further bonus list is applied.
+void Item::SeedSpellCharges(uint32 firstEffect)
+{
+    uint8 const chargeSlots = uint8(std::min<uint32>(_bonusData.EffectCount, MAX_ITEM_SPELLS));
+    for (uint8 i = uint8(std::min<uint32>(firstEffect, MAX_ITEM_SPELLS)); i < chargeSlots; ++i)
+        SetSpellCharges(i, _bonusData.Effects[i]->Charges);
 }
 
 bool Item::IsArtifactDisabled() const
