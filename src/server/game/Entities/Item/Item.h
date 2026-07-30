@@ -68,9 +68,10 @@ enum ItemUpdateState
 #define MAX_ITEM_SPELLS 5
 
 // An item's effect set is its template effects plus any granted by its bonus lists
-// (ITEM_BONUS_ITEM_EFFECT_ID). Sixteen matches upstream; anything past it is dropped
-// rather than overflowing. Not reachable in practice - items carry a handful of
-// template effects and a corruption bonus adds one.
+// (ITEM_BONUS_ITEM_EFFECT_ID). Sixteen is far above anything a live item reaches - a
+// template carries a handful of effects and a corruption bonus adds one - so the cap only
+// exists to stop malformed hotfix data from growing the set without limit. Effects past
+// it are dropped rather than overflowing the array.
 #define MAX_BONUS_ITEM_EFFECTS 16
 
 bool ItemCanGoIntoBag(ItemTemplate const* proto, ItemTemplate const* pBagProto);
