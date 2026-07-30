@@ -467,9 +467,14 @@ bool Item::Create(ObjectGuid::LowType guidlow, uint32 itemId, ItemContext contex
     SetUpdateFieldValue(m_values.ModifyValue(&Item::m_itemData).ModifyValue(&UF::ItemData::MaxDurability), itemProto->MaxDurability);
     SetDurability(itemProto->MaxDurability);
 
-    for (std::size_t i = 0; i < itemProto->Effects.size(); ++i)
-        if (i < 5)
-            SetSpellCharges(i, itemProto->Effects[i]->Charges);
+    uint8 chargeSlot = 0;
+    for (ItemEffectEntry const* itemEffect : GetEffects())
+    {
+        if (chargeSlot >= MAX_ITEM_SPELLS)
+            break;
+
+        SetSpellCharges(chargeSlot++, itemEffect->Charges);
+    }
 
     SetExpiration(itemProto->GetDuration());
     SetCreatePlayedTime(0);
@@ -558,10 +563,13 @@ void Item::SaveToDB(CharacterDatabaseTransaction& trans)
             stmt->setUInt32(++index, GetCount());
             stmt->setUInt32(++index, m_itemData->Expiration);
 
+            // Charge slots are keyed by effect index and the update field only holds
+            // MAX_ITEM_SPELLS of them, so write at the clamped width - LoadFromDB reads
+            // back at the same one.
             std::ostringstream ssSpells;
-            if (ItemTemplate const* itemProto = sObjectMgr->GetItemTemplate(GetEntry()))
-                for (uint8 i = 0; i < itemProto->Effects.size(); ++i)
-                    ssSpells << GetSpellCharges(i) << ' ';
+            uint32 const chargeSlots = std::min<uint32>(_bonusData.EffectCount, MAX_ITEM_SPELLS);
+            for (uint32 i = 0; i < chargeSlots; ++i)
+                ssSpells << GetSpellCharges(i) << ' ';
             stmt->setString(++index, ssSpells.str());
 
             stmt->setUInt32(++index, m_itemData->DynamicFlags);
@@ -848,11 +856,6 @@ bool Item::LoadFromDB(ObjectGuid::LowType guid, ObjectGuid ownerGuid, Field* fie
         need_save = true;
     }
 
-    Tokenizer tokens(fields[6].GetString(), ' ', proto->Effects.size());
-    if (tokens.size() == proto->Effects.size())
-        for (uint8 i = 0; i < proto->Effects.size(); ++i)
-            SetSpellCharges(i, atoi(tokens[i]));
-
     SetItemFlags(ItemFieldFlags(itemFlags));
 
     /*SetUInt32Value(ITEM_FIELD_CONTEXT, fields[19].GetUInt8());
@@ -890,6 +893,15 @@ bool Item::LoadFromDB(ObjectGuid::LowType guid, ObjectGuid ownerGuid, Field* fie
     for (char const* token : bonusListString)
         bonusListIDs.push_back(atoi(token));
     SetBonuses(std::move(bonusListIDs));
+
+    // Charges are keyed by effect index and bonus lists can add effects, so this has to
+    // run after SetBonuses - before it, only the template effects are known. An item
+    // stored before its bonus list changed legitimately has fewer tokens than effects;
+    // read what is there rather than discarding every charge on a count mismatch.
+    Tokenizer tokens(fields[6].GetString(), ' ', _bonusData.EffectCount);
+    uint32 const chargeSlots = std::min({ uint32(tokens.size()), _bonusData.EffectCount, uint32(MAX_ITEM_SPELLS) });
+    for (uint32 i = 0; i < chargeSlots; ++i)
+        SetSpellCharges(i, atoi(tokens[i]));
 
     SetModifier(ITEM_MODIFIER_TRANSMOG_APPEARANCE_ALL_SPECS, fields[19].GetUInt32());
     SetModifier(ITEM_MODIFIER_TRANSMOG_APPEARANCE_SPEC_1, fields[20].GetUInt32());
