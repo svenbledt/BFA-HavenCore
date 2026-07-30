@@ -4720,9 +4720,13 @@ void Spell::TakeCastItem()
                 m_CastItem->SetState(ITEM_CHANGED, player);
             }
 
-            // all charges used - fold in rather than assign, so an effect that is already
-            // spent cannot condemn an item whose other effects still have charges left
-            withoutCharges = withoutCharges && (charges == 0);
+            // Only a persisted charge count says whether the item is spent. A stack shares
+            // one charge array, so the write above was skipped and this reads back the
+            // seeded value - folding that in would leave any stack carrying a positive
+            // charge effect permanently unconsumed. Fold rather than assign, so an effect
+            // that is already spent cannot condemn an item whose others have charges left.
+            if (proto->GetMaxStackSize() == 1)
+                withoutCharges = withoutCharges && (charges == 0);
         }
 
         ++i;
