@@ -567,8 +567,8 @@ void Item::SaveToDB(CharacterDatabaseTransaction& trans)
             // MAX_ITEM_SPELLS of them, so write at the clamped width - LoadFromDB reads
             // back at the same one.
             std::ostringstream ssSpells;
-            uint32 const chargeSlots = std::min<uint32>(_bonusData.EffectCount, MAX_ITEM_SPELLS);
-            for (uint32 i = 0; i < chargeSlots; ++i)
+            uint8 const chargeSlots = uint8(std::min<uint32>(_bonusData.EffectCount, MAX_ITEM_SPELLS));
+            for (uint8 i = 0; i < chargeSlots; ++i)
                 ssSpells << GetSpellCharges(i) << ' ';
             stmt->setString(++index, ssSpells.str());
 
@@ -899,8 +899,8 @@ bool Item::LoadFromDB(ObjectGuid::LowType guid, ObjectGuid ownerGuid, Field* fie
     // stored before its bonus list changed legitimately has fewer tokens than effects;
     // read what is there rather than discarding every charge on a count mismatch.
     Tokenizer tokens(fields[6].GetString(), ' ', _bonusData.EffectCount);
-    uint32 const chargeSlots = std::min({ uint32(tokens.size()), _bonusData.EffectCount, uint32(MAX_ITEM_SPELLS) });
-    for (uint32 i = 0; i < chargeSlots; ++i)
+    uint8 const chargeSlots = uint8(std::min({ uint32(tokens.size()), _bonusData.EffectCount, uint32(MAX_ITEM_SPELLS) }));
+    for (uint8 i = 0; i < chargeSlots; ++i)
         SetSpellCharges(i, atoi(tokens[i]));
 
     SetModifier(ITEM_MODIFIER_TRANSMOG_APPEARANCE_ALL_SPECS, fields[19].GetUInt32());
