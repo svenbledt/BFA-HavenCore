@@ -4693,7 +4693,9 @@ void Spell::TakeCastItem()
     }
 
     bool expendable = false;
-    bool withoutCharges = false;
+    // Starts set so the verdict of every charged effect can be folded in below; an item
+    // with no charged effect at all is never expendable and so is never destroyed here.
+    bool withoutCharges = true;
 
     uint8 i = 0;
     for (ItemEffectEntry const* itemEffect : m_CastItem->GetEffects())
@@ -4718,8 +4720,9 @@ void Spell::TakeCastItem()
                 m_CastItem->SetState(ITEM_CHANGED, player);
             }
 
-            // all charges used
-            withoutCharges = (charges == 0);
+            // all charges used - fold in rather than assign, so an effect that is already
+            // spent cannot condemn an item whose other effects still have charges left
+            withoutCharges = withoutCharges && (charges == 0);
         }
 
         ++i;
