@@ -176,16 +176,22 @@ rule is what keeps the diff reviewable.
 | `Item.cpp` | 470 | charge init on create |
 | `Item.cpp` | 563 | charge **save** to DB — must change together with 851 (§8.1) |
 | `Item.cpp` | 851-853 | charge **load** from DB — must change together with 563 (§8.1) |
-| `Spell.cpp` | 4698, 6479, 6581, 6720, 6917 | charge and on-use paths |
+| `Spell.cpp` | 4698, 4903, 6479, 6581, 6720, 6917 | charge and on-use paths |
 | `SpellEffects.cpp` | 5781 | charge init on item creation |
-| `SpellHistory.cpp` | 1035 | item cooldowns |
 | `ItemHandler.cpp` | 1193 | — |
 | `SpellHandler.cpp` | 98 | — |
 
 **Keep `proto->Effects`** (no `Item*` available): `AuctionHouseMgr.cpp:1272`,
 `BattlePayMgr.cpp:269`, `BattlePayMgr.cpp:387`, `Loot.cpp:84`, `Player.cpp:688`,
 `Player.cpp:8860`, `Player.cpp:12712` (learn-spell checks), `Player.cpp:24601`
-(`UpdatePotionCooldown`, keyed off `m_lastPotionId`).
+(`UpdatePotionCooldown`, keyed off `m_lastPotionId`), `ToyHandler.cpp:64` (toy
+lookup is by item entry, the player need not own an instance), and
+`SpellHistory.cpp:1035` — the enclosing
+`GetCooldownDurations(SpellInfo const*, uint32 itemId, ...)` receives an item *id*,
+not an `Item*`, so a bonus-granted effect's cooldown override is out of reach here.
+That is a real gap for any future bonus-granted **on-use** effect; it is not one for
+corruption, whose effects are passive. Fixing it means threading an `Item*` through
+the cooldown API and belongs to its own change.
 
 ### 4.4 Consequence
 
@@ -325,15 +331,28 @@ Unequip mirrors equip: effect aura removed, rating removed, penalties re-synced.
 `Item.cpp:563` as a space-separated string sized by the effect count, and read back at
 `Item.cpp:851` under the guard `tokens.size() == proto->Effects.size()`.
 
-Two consequences, both of which must be handled:
+Four consequences, all of which must be handled:
 
 - **Save and load must migrate together.** If only one switches to `GetEffects()`, every
   corrupted item's charge string is written at one width and read at another, so the guard
   fails and all charges are dropped on the next login.
+- **The charge block must move below `SetBonuses`.** In `Item::LoadFromDB`, `Initialize(proto)`
+  runs at line 823 but the item's bonus list is not applied until `SetBonuses` at line 892.
+  Reading charges at line 851 would therefore see template effects only, while `SaveToDB` — which
+  always runs on a fully bonused item — writes the full count. Migrating both sites is not
+  enough; the charge block has to be relocated below the `SetBonuses` call. Nothing between the
+  two points reads or writes charges, so the move is behaviour-preserving.
 - **The equality guard must be relaxed regardless.** An item stored before a corruption change
   — or after a future purification — legitimately has a mismatched count, and today that
   silently discards **all** its charges. Read up to `min(tokens.size(), effectCount)` instead
-  of demanding exact equality.
+  of demanding exact equality. This is also what carries existing `item_instance` rows across
+  the change: they were written at template width and are read back at template width.
+- **Every charge loop must clamp to `MAX_ITEM_SPELLS`.** `ActivePlayerData`'s backing store is
+  `UpdateFieldArray<int32, 5, 20, 21> SpellCharges` (`UpdateFields.h:113`), and
+  `Get`/`SetSpellCharges` index it with no bounds check. Most existing loops already clamp with
+  `&& i < 5`; the save loop at `Item.cpp:563` and the load loop at `:853` do not. They are safe
+  today only because no shipped template carries more than five effects — once `GetEffects()`
+  can return up to sixteen, an unclamped loop is an out-of-bounds access. Clamp both.
 
 **8.2 Effect ordering — relied upon.** `Initialize(proto)` seeds template effects first;
 bonuses append after. Template effect indices, which charge slots are keyed to, therefore stay
