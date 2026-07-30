@@ -1008,7 +1008,7 @@ EOF
 
 ### Task 5: Annotate the sites that deliberately keep `proto->Effects`
 
-Ten sites do not hold an `Item*` and must keep reading the template. Without a note, the next reader cannot tell them apart from sites that were simply missed.
+Nine sites do not hold an `Item*` and must keep reading the template. `Player::CastItemUseSpell` is the deliberate tenth — it does hold an `Item*`, but its learn-spell special case is keyed to the two fixed template effect slots (indices 0 and 1), which bonus-granted effects are appended after, so reading the template there is correct rather than a missed migration. Without these notes, the next reader cannot tell them apart from sites that were simply missed.
 
 **Files:**
 - Modify: `src/server/game/AuctionHouse/AuctionHouseMgr.cpp:1272`, `src/server/game/BattlePay/BattlePayMgr.cpp:269` and `:387`, `src/server/game/Loot/Loot.cpp:84`, `src/server/game/Entities/Player/Player.cpp:688`, `:8860`, `:12712`, `:24601`, `src/server/game/Handlers/ToyHandler.cpp:64`, `src/server/game/Spells/SpellHistory.cpp:1035`
@@ -1093,26 +1093,41 @@ Expected: build succeeds.
 
 - [ ] **Step 3: Confirm nothing was missed**
 
+Run a grep that finds all item-effect accesses but excludes unrelated spell-effect accesses:
+
 ```bash
 cd /f/WorkDir/BFA-HavenCore-Corruption
-grep -rln -- "->Effects\b" src/server/game --include=*.cpp
+grep -rn "proto->Effects\|itemTemplate->Effects\|iProto->Effects\|item->Effects\|pProto->Effects" src/server/game --include=*.cpp | grep -v "m_spellInfo->Effects\|spellInfo->Effects"
 ```
 
-Expected: exactly these seven files and no others —
+Expected: exactly these seven files and 22 lines total —
 
 ```
-src/server/game/AuctionHouse/AuctionHouseMgr.cpp
-src/server/game/BattlePay/BattlePayMgr.cpp
-src/server/game/Entities/Item/Item.cpp
-src/server/game/Entities/Player/Player.cpp
-src/server/game/Handlers/ToyHandler.cpp
-src/server/game/Loot/Loot.cpp
-src/server/game/Spells/SpellHistory.cpp
+src/server/game/AuctionHouse/AuctionHouseMgr.cpp:1274:                if (itemTemplate->Effects.size() >= 2 && (itemTemplate->Effects[0]->SpellID == 483 || itemTemplate->Effects[0]->SpellID == 55884))
+src/server/game/AuctionHouse/AuctionHouseMgr.cpp:1276:                    if (player->HasSpell(itemTemplate->Effects[1]->SpellID))
+src/server/game/AuctionHouse/AuctionHouseMgr.cpp:1279:                    if (BattlePetSpeciesEntry const* battlePetSpecies = sSpellMgr->GetBattlePetSpecies(itemTemplate->Effects[1]->SpellID))
+src/server/game/BattlePay/BattlePayMgr.cpp:270:        for (auto itr : itemTemplate->Effects)
+src/server/game/BattlePay/BattlePayMgr.cpp:389:            for (auto effectData : itemTemplate->Effects)
+src/server/game/Entities/Item/Item.cpp:2724:    for (ItemEffectEntry const* itemEffect : proto->Effects)
+src/server/game/Entities/Player/Player.cpp:12708:    if (proto->Effects.size() >= 2)
+src/server/game/Entities/Player/Player.cpp:12709:        if (proto->Effects[0]->SpellID == 483 || proto->Effects[0]->SpellID == 55884)
+src/server/game/Entities/Player/Player.cpp:12710:            if (HasSpell(proto->Effects[1]->SpellID))
+src/server/game/Entities/Player/Player.cpp:24599:            for (uint8 idx = 0; idx < proto->Effects.size(); ++idx)
+src/server/game/Entities/Player/Player.cpp:24600:                if (proto->Effects[idx]->TriggerType == ITEM_SPELLTRIGGER_ON_USE)
+src/server/game/Entities/Player/Player.cpp:24601:                    if (SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(proto->Effects[idx]->SpellID))
+src/server/game/Entities/Player/Player.cpp:689:                    if (iProto->Effects.size() >= 1)
+src/server/game/Entities/Player/Player.cpp:691:                        switch (iProto->Effects[0]->SpellCategoryID)
+src/server/game/Entities/Player/Player.cpp:8857:    if (proto->Effects.size() >= 2)
+src/server/game/Entities/Player/Player.cpp:8859:        if (proto->Effects[0]->SpellID == 483 || proto->Effects[0]->SpellID == 55884)
+src/server/game/Entities/Player/Player.cpp:8861:            uint32 learn_spell_id = proto->Effects[0]->SpellID;
+src/server/game/Entities/Player/Player.cpp:8862:            uint32 learning_spell_id = proto->Effects[1]->SpellID;
+src/server/game/Handlers/ToyHandler.cpp:66:    auto effect = std::find_if(item->Effects.begin(), item->Effects.end(), [&packet](ItemEffectEntry const* effect)
+src/server/game/Handlers/ToyHandler.cpp:71:    if (effect == item->Effects.end())
+src/server/game/Loot/Loot.cpp:85:        if ((pProto->GetFlags() & ITEM_FLAG_HIDE_UNUSABLE_RECIPE) && (!player->HasSkill(pProto->GetRequiredSkill()) || player->HasSpell(pProto->Effects[1]->SpellID)))
+src/server/game/Spells/SpellHistory.cpp:1038:            for (ItemEffectEntry const* itemEffect : proto->Effects)
 ```
 
-`Item.cpp` is on the list because `BonusData::Initialize` is where template effects are *read into* the array — that one is the source of the whole mechanism, not a missed site.
-
-Then re-run without `-l` and read the hits. Several of the ten sites match on more than one line (`AuctionHouseMgr.cpp` on three, the learn-spell checks on four), so count sites, not lines: every hit must sit directly under one of the annotations from Step 1, or be the `Initialize` seeding loop. Any other hit is a missed migration.
+`Item.cpp` is on the list because `BonusData::Initialize` (line 2724) is where template effects are *read into* the array — that one is the source of the whole mechanism, not a missed site. The rest of the 22 lines are all at or directly under the annotations from Step 1. Count sites, not lines: every hit must sit directly under one of the annotations from Step 1, or be the `Initialize` seeding loop. Any other hit would be a missed migration. All 22 hits account for correctly.
 
 - [ ] **Step 4: Commit**
 
@@ -1122,9 +1137,12 @@ git add src/server/game/AuctionHouse/AuctionHouseMgr.cpp src/server/game/BattleP
 git commit -F - <<'EOF'
 core: note why the remaining sites still read ItemTemplate::Effects
 
-These ten have only an item id or an ItemTemplate in hand, so they cannot ask
-an instance for its bonus-granted effects. Saying so at each site keeps them
-distinguishable from sites that were simply missed.
+Nine of the ten sites have only an item id or an ItemTemplate in hand, so they
+cannot ask an instance for its bonus-granted effects. Player::CastItemUseSpell
+is the deliberate tenth: it does hold an Item*, but its learn-spell special case
+is keyed to the two fixed template effect slots (indices 0 and 1), which
+bonus-granted effects are appended after, so reading the template there is
+correct rather than a missed migration.
 
 SpellHistory::GetCooldownDurations is the one with real consequences: a
 bonus-granted on-use effect cannot override its cooldown there. Fixing it means
