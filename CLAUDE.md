@@ -14,14 +14,11 @@ BFA-HavenCore — a TrinityCore-derived World of Warcraft server emulator target
 
 ## Build
 
-Windows / MSVC is the primary toolchain. **Visual Studio 2022 and Visual Studio 2026 are both accepted** — `cmake/compiler/msvc/settings.cmake` gates on MSVC ≥ 19.30 as a *floor*, not a pin, so either satisfies it. Pick the generator that matches your install:
+Windows / Visual Studio 2022 is the primary toolchain. The configured tree is `./build` (VS 17 2022, x64, `TOOLS=0`).
 
 ```powershell
-# configure — VS 2022
+# configure (only needed after CMakeLists/option changes)
 cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DTOOLS=0
-
-# configure — VS 2026
-cmake -S . -B build-vs2026 -G "Visual Studio 18 2026" -A x64 -DTOOLS=0
 
 # build one target — worldserver is the usual one
 cmake --build build --config RelWithDebInfo --target worldserver
@@ -29,8 +26,6 @@ cmake --build build --config RelWithDebInfo --target worldserver
 # everything
 cmake --build build --config RelWithDebInfo
 ```
-
-Reconfiguring is only needed after `CMakeLists`/option changes. Give **each generator its own build directory**: CMake refuses to reconfigure an existing tree with a different generator, and the error blames the cache rather than the generator switch. If a build breaks in a way the source does not explain, delete the build directory before believing it.
 
 Targets: `worldserver`, `bnetserver`, `game`, `scripts`, `shared`, `common`, `database`, `proto`. Binaries land in `build/bin/RelWithDebInfo/`.
 
