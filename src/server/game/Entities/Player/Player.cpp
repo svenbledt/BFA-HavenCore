@@ -685,6 +685,7 @@ bool Player::Create(ObjectGuid::LowType guidlow, WorldPackets::Character::Charac
                 // special amount for food/drink
                 if (iProto->GetClass() == ITEM_CLASS_CONSUMABLE && iProto->GetSubClass() == ITEM_SUBCLASS_FOOD_DRINK)
                 {
+                    // Template effects only: this walks stored item ids, not instances.
                     if (iProto->Effects.size() >= 1)
                     {
                         switch (iProto->Effects[0]->SpellCategoryID)
@@ -8851,6 +8852,8 @@ void Player::CastItemUseSpell(Item* item, SpellCastTargets const& targets, Objec
 {
     ItemTemplate const* proto = item->GetTemplate();
     // special learning case
+    // Template effects only: the learn-spell special case is keyed to the two fixed
+    // template effect slots, which bonus-granted effects are appended after.
     if (proto->Effects.size() >= 2)
     {
         if (proto->Effects[0]->SpellID == 483 || proto->Effects[0]->SpellID == 55884)
@@ -12701,6 +12704,7 @@ InventoryResult Player::CanUseItem(ItemTemplate const* proto, bool skipRequiredL
         return EQUIP_ERR_CANT_EQUIP_REPUTATION;
 
     // learning (recipes, mounts, pets, etc.)
+    // Template effects only: same fixed learn-spell slots as CastItemUseSpell.
     if (proto->Effects.size() >= 2)
         if (proto->Effects[0]->SpellID == 483 || proto->Effects[0]->SpellID == 55884)
             if (HasSpell(proto->Effects[1]->SpellID))
@@ -24590,6 +24594,8 @@ void Player::UpdatePotionCooldown(Spell* spell)
     {
         // spell/item pair let set proper cooldown (except non-existing charged spell cooldown spellmods for potions)
         if (ItemTemplate const* proto = sObjectMgr->GetItemTemplate(m_lastPotionId))
+            // Template effects only: UpdatePotionCooldown is keyed off m_lastPotionId,
+            // an item id kept after the Item itself is gone.
             for (uint8 idx = 0; idx < proto->Effects.size(); ++idx)
                 if (proto->Effects[idx]->TriggerType == ITEM_SPELLTRIGGER_ON_USE)
                     if (SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(proto->Effects[idx]->SpellID))

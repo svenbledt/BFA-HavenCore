@@ -1032,6 +1032,9 @@ void SpellHistory::GetCooldownDurations(SpellInfo const* spellInfo, uint32 itemI
     {
         if (ItemTemplate const* proto = sObjectMgr->GetItemTemplate(itemId))
         {
+            // Template effects only: this function receives an item id, not an Item*, so a
+            // bonus-granted effect's cooldown override is out of reach here. That is a gap
+            // for any future bonus-granted on-use effect; corruption effects are passive.
             for (ItemEffectEntry const* itemEffect : proto->Effects)
             {
                 if (uint32(itemEffect->SpellID) == spellInfo->Id)
