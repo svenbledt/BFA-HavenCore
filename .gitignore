@@ -1,5 +1,12 @@
 sql/base/*.sql
 sql/base/*.rar
 client-data/**
+
+## AI STUFF
 .claude/
+.superpowers/
 TODO.md
+docs/
+
+## Build Directory
+build/
