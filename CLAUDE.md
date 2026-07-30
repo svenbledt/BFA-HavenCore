@@ -10,7 +10,7 @@ BFA-HavenCore — a TrinityCore-derived World of Warcraft server emulator target
 
 ### Current branch context
 
-`feature/corruption-system` lives in a clone of the community repo at `F:\WorkDir\BFA-HavenCore`. The planning artefacts for that work — `docs/superpowers/` and `.superpowers/` — are clone-local and are deleted before the branch merges back; the community repo carries no AI planning docs. Design of record: `docs/superpowers/specs/2026-07-30-bfa-corruption-system-design.md`, with plans in `docs/superpowers/plans/`. Task ledgers live in `.superpowers/sdd/<plan-slug>/progress.md` — read the ledger before continuing an in-flight plan; it records deferred items and controller rulings that the commits do not.
+`feature/corruption-system` is developed in a separate clone of the community repo. The planning artefacts for that work — `docs/superpowers/` and `.superpowers/` — are clone-local and are deleted before the branch merges back; the community repo carries no AI planning docs. Design of record: `docs/superpowers/specs/2026-07-30-bfa-corruption-system-design.md`, with plans in `docs/superpowers/plans/`. Task ledgers live in `.superpowers/sdd/<plan-slug>/progress.md` — read the ledger before continuing an in-flight plan; it records deferred items and controller rulings that the commits do not.
 
 ## Build
 
@@ -86,6 +86,7 @@ Treat development as an interactive pipeline. Stop and wait for explicit human a
 - **Delete dead code.** Remove replaced or deprecated blocks outright; never comment them out.
 - **Surgical scope.** Touch only the files and lines the task calls for. No drive-by formatting, refactors, or style cleanups.
 - **"Why" comments only.** Never comment what the C++ does. Comment only why a path is required — an 8.3.7 packet sniff, a client quirk, a retail behaviour being matched.
+- **No absolute paths.** Every path — in docs, comments, commit messages, scripts, CMake, and config examples — is relative to the repository root (`src/server/game/...`, `sql/updates/db_world/...`, `build/bin/...`). A machine-local path like `F:\WorkDir\...` or `/home/you/...` is meaningless to the next contributor. Where a real local path is unavoidable, name it as a placeholder (`<repo-root>`, `<client-install>`) or read it from config.
 
 ## 3. TrinityCore & C++ conventions
 
