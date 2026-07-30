@@ -203,6 +203,8 @@ public:
         return { { _bonusData.Effects, _bonusData.Effects + _bonusData.EffectCount } };
     }
 
+    uint32 GetEffectCount() const { return _bonusData.EffectCount; }
+
     ObjectGuid GetOwnerGUID()    const { return m_itemData->Owner; }
     void SetOwnerGUID(ObjectGuid guid) { SetUpdateFieldValue(m_values.ModifyValue(&Item::m_itemData).ModifyValue(&UF::ItemData::Owner), guid); }
     ObjectGuid GetContainedIn()    const { return m_itemData->ContainedIn; }
