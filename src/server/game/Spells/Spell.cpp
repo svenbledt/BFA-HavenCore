@@ -4906,8 +4906,9 @@ void Spell::TakeReagents()
         uint32 itemid = m_spellInfo->Reagent[x];
         uint32 itemcount = m_spellInfo->ReagentCount[x];
 
-        // if CastItem is also spell reagent
-        if (castItemTemplate && castItemTemplate->GetId() == itemid)
+        // if CastItem is also spell reagent - the template outlives m_CastItem, which this
+        // block clears, so a second reagent slot naming the same item must not re-enter it
+        if (m_CastItem && castItemTemplate && castItemTemplate->GetId() == itemid)
         {
             uint8 s = 0;
             for (ItemEffectEntry const* itemEffect : m_CastItem->GetEffects())
