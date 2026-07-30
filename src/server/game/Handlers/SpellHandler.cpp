@@ -97,6 +97,11 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spells::UseItem& packet)
     {
         for (ItemEffectEntry const* itemEffect : item->GetEffects())
         {
+            // Only the on-use effect is being cast here - a passive effect that happens to
+            // be flagged unusable in combat must not block it
+            if (itemEffect->TriggerType != ITEM_SPELLTRIGGER_ON_USE)
+                continue;
+
             if (SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(itemEffect->SpellID))
             {
                 if (!spellInfo->CanBeUsedInCombat())
