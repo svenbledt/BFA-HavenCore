@@ -95,9 +95,9 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spells::UseItem& packet)
 
     if (user->IsInCombat())
     {
-        for (uint32 i = 0; i < proto->Effects.size(); ++i)
+        for (ItemEffectEntry const* itemEffect : item->GetEffects())
         {
-            if (SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(proto->Effects[i]->SpellID))
+            if (SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(itemEffect->SpellID))
             {
                 if (!spellInfo->CanBeUsedInCombat())
                 {
