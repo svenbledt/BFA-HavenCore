@@ -30846,7 +30846,6 @@ void Player::SetEffectiveLevelAndMaxItemLevel(uint32 effectiveLevel, uint32 maxI
 
     _ApplyAllItemMods();
     SetCanModifyStats(true);
-    UpdateCorruption();
 
     UpdateAverageItemLevel();
 
