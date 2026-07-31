@@ -1089,6 +1089,12 @@ void Player::Update(uint32 p_time)
     if (!IsInWorld())
         return;
 
+    if (m_corruptionNeedsUpdate)
+    {
+        m_corruptionNeedsUpdate = false;
+        UpdateCorruption();
+    }
+
     // undelivered mail
     if (m_nextMailDelivereTime && m_nextMailDelivereTime <= time(nullptr))
     {
@@ -5531,7 +5537,7 @@ void Player::UpdateRating(CombatRating cr)
             // mutation would walk the total down to zero and tear down each tier's aura on the
             // way. Callers that clear this flag are responsible for one sync when they finish.
             if (affectStats)
-                UpdateCorruption();
+                ScheduleCorruptionUpdate();
             break;
         case CR_SPEED:
         case CR_RESILIENCE_PLAYER_DAMAGE:
@@ -7697,9 +7703,9 @@ void Player::UpdateArea(uint32 newArea)
 
         // A corruption penalty can be gated on a PlayerConditionID that reads the player's
         // location, and nothing else re-evaluates those conditions when only the area
-        // changes. Safe to call on every transition because UpdateCorruption casts only
+        // changes. Safe to call on every transition because the corruption sync casts only
         // what is missing.
-        UpdateCorruption();
+        ScheduleCorruptionUpdate();
     }
 }
 
@@ -30881,7 +30887,7 @@ void Player::UpdateItemLevelAreaBasedScaling()
         SetCanModifyStats(true);
         // The bracket defers every derived stat, not only corruption, and neither item-mod pass
         // recomputes on its own - so settle them all once here, as _ApplyAllStatBonuses does.
-        // This reaches UpdateCorruption through UpdateAllRatings, and leaves the max health the
+        // This schedules the corruption sync through UpdateAllRatings, and leaves the max health the
         // line below scales against freshly computed rather than one rebuild stale.
         UpdateAllStats();
         SetHealth(CalculatePct(GetMaxHealth(), healthPct));
