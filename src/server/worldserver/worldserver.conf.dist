@@ -3937,9 +3937,11 @@ Logger.commands.gm    =3,Console Server
 Logger.commands.ra    =3,Console Server
 Logger.scripts        =5,Console Server Errors
 Logger.sql.sql        =5,Console Server Errors
+# Level 3 = INFO. sql.updates is silent at the default root level of 5 (ERROR), which
+# makes a skipped update directory look identical to a successful update run.
+Logger.sql.updates    =3,Console Server Errors
 
 
-#Logger.sql.updates=3,Console Server Errors
 #Logger.network=5,Console Server Errors
 #Logger.network.opcode=5,Console Server Errors
 #Logger.network.soap=5,Console Server Errors

@@ -47,7 +47,7 @@ Linux builds go through Docker; `docker/README.md` is the authoritative guide (`
 ### Four databases
 `auth` (login), `characters`, `world`, `hotfixes` — connection strings in `worldserver.conf` (`LoginDatabaseInfo`, `WorldDatabaseInfo`, …). All queries go through per-database prepared-statement enums in `src/server/database/Database/Implementation/{Login,Character,World,Hotfix}Database.h` (`CHAR_SEL_*`, `CHAR_UPD_*`, … terminated by `MAX_*DATABASE_STATEMENTS`), used as `CharacterDatabase.GetPreparedStatement(CHAR_UPD_ITEM_INSTANCE)`. Adding a query means adding the enum member *and* its `PrepareStatement` line in the matching `.cpp`. Async results come back via `QueryCallback` / query holders — never block a map thread on a query.
 
-Migrations live in `sql/updates/db_world/YYYY_MM_DD_NN[_description].sql` and are applied at startup by `DBUpdater`/`UpdateFetcher` according to the `Updates.EnableDatabases` bitmask. Base dumps (`sql/base/*.sql`) are gitignored and not part of the repo.
+Migrations live in `sql/updates/world/YYYY_MM_DD_NN[_description].sql` and are applied at startup by `DBUpdater`/`UpdateFetcher` according to the `Updates.EnableDatabases` bitmask. The directory name is not free: `UpdateFetcher` reads it from the `updates_include` table, which the base dump seeds as `$/sql/updates/world`. Renaming the directory silently disables the updater — it logs one WARN and then finds no files at all. Base dumps (`sql/base/*.sql`) are gitignored and not part of the repo.
 
 ### Client data (DB2)
 `src/server/game/DataStores/` mirrors the client's `.db2` files: `DB2Stores.cpp` (store declarations + load order), `DB2Structure.h` (row structs), `DB2LoadInfo.h` / `DB2Metadata.h` (field layouts that **must** match the client build), `DBCEnums.h` (constants and ID enums). Touching one of these usually means touching all of them. Row data is read from `DataDir` (`.\ClientData`), extracted from the 8.3.7 client — treat the DB2s as ground truth and never hardcode a value you could read from them.
@@ -86,7 +86,7 @@ Treat development as an interactive pipeline. Stop and wait for explicit human a
 - **Delete dead code.** Remove replaced or deprecated blocks outright; never comment them out.
 - **Surgical scope.** Touch only the files and lines the task calls for. No drive-by formatting, refactors, or style cleanups.
 - **"Why" comments only.** Never comment what the C++ does. Comment only why a path is required — an 8.3.7 packet sniff, a client quirk, a retail behaviour being matched.
-- **No absolute paths.** Every path — in docs, comments, commit messages, scripts, CMake, and config examples — is relative to the repository root (`src/server/game/...`, `sql/updates/db_world/...`, `build/bin/...`). A machine-local path like `F:\WorkDir\...` or `/home/you/...` is meaningless to the next contributor. Where a real local path is unavoidable, name it as a placeholder (`<repo-root>`, `<client-install>`) or read it from config.
+- **No absolute paths.** Every path — in docs, comments, commit messages, scripts, CMake, and config examples — is relative to the repository root (`src/server/game/...`, `sql/updates/world/...`, `build/bin/...`). A machine-local path like `F:\WorkDir\...` or `/home/you/...` is meaningless to the next contributor. Where a real local path is unavoidable, name it as a placeholder (`<repo-root>`, `<client-install>`) or read it from config.
 
 ## 3. TrinityCore & C++ conventions
 
