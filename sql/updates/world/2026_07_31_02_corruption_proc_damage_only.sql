@@ -1,0 +1,54 @@
+-- Grasping Tendrils and Grand Delusions fired on heals as well as on damage.
+--
+-- Blizzard's own text for both container spells is unambiguous:
+--
+--   315175  "Taking damage has a chance to reduce your movement speed for $315176d."
+--   315184  "Taking damage has a chance to summon a Thing From Beyond, which pursues
+--            you for $315186d."
+--
+-- Both ship ProcFlags 0x800AAAA8, which is bits 3, 5, 7, 9, 11, 13, 15, 17, 19 and 31 -
+-- every TAKEN flag there is. Three of those are not damage:
+--
+--   bit 11  PROC_FLAG_TAKEN_SPELL_NONE_DMG_CLASS_POS
+--   bit 15  PROC_FLAG_TAKEN_SPELL_MAGIC_DMG_CLASS_POS
+--   bit 19  PROC_FLAG_TAKEN_PERIODIC          -- "damage / healing", per SpellMgr.h
+--
+-- Retail evidently narrowed this server-side, because the flags alone let any heal
+-- taken trigger the drawback. Bit 19 is how it was noticed in game: standing in a
+-- druid's Efflorescence rooted the player over and over, one proc per healing tick.
+--
+-- Without a `spell_proc` row TrinityCore auto-generates one and defaults SpellTypeMask
+-- to PROC_SPELL_TYPE_MASK_ALL (SpellMgr.cpp:1431); the filter in
+-- SpellMgr::CanSpellTriggerProcOnEvent (SpellMgr.cpp:493) only applies when that mask
+-- is non-zero, so heals passed straight through. Setting it to PROC_SPELL_TYPE_DAMAGE
+-- restores the tooltip's meaning.
+--
+-- This does not cost us melee. The type filter at :493 is gated on the event's flags
+-- intersecting SPELL_PROC_FLAG_MASK | PERIODIC_PROC_FLAG_MASK, and melee auto-attacks
+-- proc as bit 3 (PROC_FLAG_TAKEN_MELEE_AUTO_ATTACK), which is deliberately absent from
+-- SPELL_PROC_FLAG_MASK (SpellMgr.h:183-190). They therefore skip the check entirely -
+-- which is just as well, since AttackerStateUpdate passes PROC_SPELL_TYPE_NONE
+-- (Unit.cpp:2204) and any non-zero mask would otherwise reject them. Every other way
+-- of taking damage already carries PROC_SPELL_TYPE_DAMAGE: melee-class and ranged
+-- abilities and auto shot via Spell.cpp:2600, periodic damage via
+-- SpellAuraEffects.cpp:6206, damage split via Unit.cpp:2062. Heals arrive as
+-- PROC_SPELL_TYPE_HEAL (Spell.cpp:2563, SpellAuraEffects.cpp:5911/5944/6040) and are
+-- now the only thing dropped, alongside PROC_SPELL_TYPE_NO_DMG_HEAL - a Polymorph
+-- landing on you is not "taking damage" either.
+--
+-- Every other column stays 0 on purpose. ProcFlags, Chance, Cooldown and Charges then
+-- fall back to their DB2 values (SpellMgr.cpp:1359-1366) instead of being restated here
+-- and drifting. SpellPhaseMask is safe at 0 because it is only required for DONE flags
+-- (REQ_SPELL_PHASE_PROC_FLAG_MASK is SPELL_PROC_FLAG_MASK & DONE_HIT_PROC_FLAG_MASK)
+-- and neither spell has any.
+--
+-- Not touched: 315169, the Eye of Corruption container. Its mask is 0x00255510, whose
+-- bits 10, 14 and 18 are the DONE equivalents, so casting a heal can summon an Eye.
+-- That may well be correct - the 8.3 tooltip described the Eye as triggering on "your
+-- spells and abilities", and this build's Spell.db2 no longer carries a trigger clause
+-- at all - so it is left alone rather than changed on a guess.
+
+DELETE FROM `spell_proc` WHERE `SpellId` IN (315175, 315184);
+INSERT INTO `spell_proc` (`SpellId`, `SpellTypeMask`) VALUES
+(315175, 1), -- Grasping Tendrils   - PROC_SPELL_TYPE_DAMAGE
+(315184, 1); -- Grand Delusions     - PROC_SPELL_TYPE_DAMAGE
