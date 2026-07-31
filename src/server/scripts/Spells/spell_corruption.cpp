@@ -32,7 +32,10 @@
 #include "AreaTrigger.h"
 #include "AreaTriggerAI.h"
 #include "Log.h"
+#include "MotionMaster.h"
+#include "ObjectAccessor.h"
 #include "Player.h"
+#include "ScriptedCreature.h"
 #include "ScriptMgr.h"
 #include "SpellAuraEffects.h"
 #include "SpellInfo.h"
@@ -47,7 +50,8 @@
 enum CorruptionSpells
 {
     SPELL_EYE_OF_CORRUPTION_SUMMON = 315154,
-    SPELL_EYE_OF_CORRUPTION_DAMAGE = 315161
+    SPELL_EYE_OF_CORRUPTION_DAMAGE = 315161,
+    SPELL_GRAND_DELUSIONS_SUMMON   = 315186
 };
 
 // Grasping Tendrils, 1+ Corruption. Container 315175 procs on damage taken and
@@ -263,9 +267,105 @@ class spell_corruption_eye_of_corruption : public SpellScript
     }
 };
 
+// Grand Delusions, 40+ Corruption. Container 315184 procs on damage taken and triggers
+// 315186, whose single effect summons creature 161895, the Thing From Beyond.
+//
+// The client supplies more of this tier than of the others, and it is worth being precise
+// about which parts are data and which are not:
+//
+//   - 315186 carries DurationIndex 31, so the summon lives 8 seconds. Wowhead's article
+//     says "pursues for 10 sec"; that was measured on the PTR, and where the client is
+//     explicit the client wins, exactly as the thresholds do.
+//   - Its summon effect uses radius index 9, so the Thing appears up to 20 yards away.
+//   - SummonProperties 4793 sets Control NONE and Faction 14, so TemporarySummon::InitStats
+//     overrides the friendly faction 35 on the creature template and the Thing spawns
+//     hostile. It also carries SUMMON_PROP_FLAG_PERSONAL_SPAWN, so only the summoner ever
+//     sees their own Thing.
+//
+// What the client does not supply is the pursuit speed or the damage on contact. The
+// article gives no formula for either - only that the speed scales with corruption and
+// that a hit deals "about your health". Both constants below are therefore documented
+// approximations, in the same sense as the header note at the top of this file, and both
+// are isolated so they can be retuned without touching the logic.
+namespace GrandDelusions
+{
+    constexpr float Threshold             = 40.0f;   // CorruptionEffects.db2 MinCorruption
+    constexpr float SpeedRateAtThreshold  = 0.75f;   // 5.25 yd/s against a player's 7.0
+    constexpr float SpeedRatePerPoint     = 0.0125f; // reaches parity at 60, overtakes above
+    constexpr float SpeedRateMax          = 2.0f;
+    constexpr float DamagePctOfMaxHealth  = 100.0f;  // "about your health"
+}
+
+// Thing From Beyond - creature 161895, summoned by 315186
+struct npc_corruption_thing_from_beyond : ScriptedAI
+{
+    npc_corruption_thing_from_beyond(Creature* creature) : ScriptedAI(creature) { }
+
+    void IsSummonedBy(Unit* summoner) override
+    {
+        Player* player = summoner ? summoner->ToPlayer() : nullptr;
+        if (!player)
+        {
+            me->DespawnOrUnsummon();
+            return;
+        }
+
+        _summonerGuid = player->GetGUID();
+
+        // The Thing is a movement puzzle, not a fight: it chases one player and bursts on
+        // contact. Passive keeps it from picking up an ordinary melee swing on the way,
+        // which would both pre-damage the target and drag it into normal combat and evade
+        // handling. The player can still kill it - it is hostile, just not an attacker.
+        me->SetReactState(REACT_PASSIVE);
+
+        float const corruption = player->GetEffectiveCorruption();
+        float const rate = std::min(GrandDelusions::SpeedRateMax,
+            GrandDelusions::SpeedRateAtThreshold
+                + std::max(0.0f, corruption - GrandDelusions::Threshold) * GrandDelusions::SpeedRatePerPoint);
+
+        me->SetSpeedRate(MOVE_RUN, rate);
+        me->GetMotionMaster()->MoveChase(player);
+    }
+
+    void UpdateAI(uint32 /*diff*/) override
+    {
+        if (_summonerGuid.IsEmpty())
+            return;
+
+        Player* player = ObjectAccessor::GetPlayer(*me, _summonerGuid);
+        if (!player || !player->IsAlive())
+        {
+            me->DespawnOrUnsummon();
+            return;
+        }
+
+        if (!me->IsWithinMeleeRange(player))
+            return;
+
+        // No spell exists for this hit. The whole client-side chain is 315184 -> 315186 ->
+        // summon, and 315186 has exactly one effect, so retail drove the contact damage from
+        // creature data the client never shipped. Dealing it directly is the honest stand-in;
+        // if the real spell ever turns up, this becomes a CastSpell and the magnitude moves
+        // into the script for that spell.
+        uint32 const damage = CalculatePct(player->GetMaxHealth(), GrandDelusions::DamagePctOfMaxHealth);
+
+        TC_LOG_DEBUG("scripts.corruption", "Thing From Beyond: reached %s, dealing %u of %u max health",
+            _summonerGuid.ToString().c_str(), damage, uint32(player->GetMaxHealth()));
+
+        me->DealDamage(player, damage, nullptr, DIRECT_DAMAGE, SPELL_SCHOOL_MASK_SHADOW);
+
+        // One hit and it is spent - it does not linger to hit again inside its 8 seconds.
+        me->DespawnOrUnsummon();
+    }
+
+private:
+    ObjectGuid _summonerGuid;
+};
+
 void AddSC_corruption_spell_scripts()
 {
     RegisterAuraScript(spell_corruption_grasping_tendrils);
     RegisterSpellScript(spell_corruption_eye_of_corruption);
     RegisterAreaTriggerAI(at_corruption_eye_of_corruption);
+    RegisterCreatureAI(npc_corruption_thing_from_beyond);
 }
