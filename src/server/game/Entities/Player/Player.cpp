@@ -4642,6 +4642,13 @@ void Player::ResurrectPlayer(float restore_percent, bool applySickness)
 
     setDeathState(ALIVE);
 
+    // Dying ran the corruption penalties through RemoveAllAurasOnDeath, and nothing puts
+    // them back: the sync is driven by a corruption rating change or an area transition,
+    // and resurrecting is neither. Reviving where you fell therefore left the player
+    // permanently uncorrupted until they happened to cross an area border - which is why
+    // a corpse run appeared to fix it and .revive did not.
+    ScheduleCorruptionUpdate();
+
     // add the flag to make sure opcode is always sent
     AddUnitMovementFlag(MOVEMENTFLAG_WATERWALKING);
     SetWaterWalking(false);
