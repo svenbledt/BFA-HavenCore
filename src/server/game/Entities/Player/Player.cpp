@@ -7690,6 +7690,12 @@ void Player::UpdateArea(uint32 newArea)
                 if (garrison.second->IsAllowedArea(newArea))
                     garrison.second->Enter();
         }
+
+        // A corruption penalty can be gated on a PlayerConditionID that reads the player's
+        // location, and nothing else re-evaluates those conditions when only the area
+        // changes. Safe to call on every transition because UpdateCorruption casts only
+        // what is missing.
+        UpdateCorruption();
     }
 }
 
