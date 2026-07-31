@@ -210,7 +210,7 @@ bool Player::UpdateAllStats()
     }
 
     UpdateArmor();
-    // UpdateArmor also refreshes attack power for armor-dependent auras
+    // UpdateArmor refreshes melee attack power on its way out, so only ranged is needed here
     UpdateAttackPowerAndDamage(true);
     UpdateMaxHealth();
 
@@ -288,7 +288,7 @@ void Player::UpdateArmor()
     if (Guardian* guardian = GetGuardianPet())
         guardian->UpdateArmor();
 
-    UpdateAttackPowerAndDamage();                           // armor dependent auras update
+    UpdateAttackPowerAndDamage();                           // melee attack power refresh
 }
 
 float Player::GetHealthBonusFromStamina()
