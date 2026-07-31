@@ -31,6 +31,7 @@
 
 #include "AreaTrigger.h"
 #include "AreaTriggerAI.h"
+#include "Log.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "SpellAuraEffects.h"
@@ -161,11 +162,10 @@ struct at_corruption_eye_of_corruption : AreaTriggerAI
 
     void OnCreate() override
     {
-        Player* player = at->GetCaster() ? at->GetCaster()->ToPlayer() : nullptr;
-        if (!player)
-            return;
+        _radius = CalculateRadius();
 
-        _radius = player->GetEffectiveCorruption() * EyeOfCorruption::RadiusPerCorruption;
+        TC_LOG_DEBUG("scripts.corruption", "Eye of Corruption: spawned, caster %s, radius %.2f",
+            at->GetCasterGuid().ToString().c_str(), _radius);
 
         // The zone has to grow with corruption, and the trigger itself cannot: a cylinder
         // is searched against GetTemplate()->MaxSearchRadius (AreaTrigger.cpp:511), which
@@ -177,24 +177,48 @@ struct at_corruption_eye_of_corruption : AreaTriggerAI
         // is scaled by the same ratio so the graphic still shows where the zone ends. That
         // matters more than it sounds: at 80 corruption the zone is 16 yards against the
         // template's 5, and an unscaled graphic would leave the player no way to see it.
-        if (float templateRadius = at->GetTemplate()->CylinderDatas.Radius)
-            at->SetObjectScale(_radius / templateRadius);
+        if (_radius > 0.0f)
+            if (float templateRadius = at->GetTemplate()->CylinderDatas.Radius)
+                at->SetObjectScale(_radius / templateRadius);
     }
 
     void OnPeriodicProc() override
     {
         Unit* caster = at->GetCaster();
-        if (!caster || _radius <= 0.0f)
+        if (!caster)
             return;
+
+        // A radius of zero used to end the tick here, which meant one bad reading at
+        // creation silenced the Eye for its whole eight seconds. OnCreate can legitimately
+        // come up empty - the caster may not resolve, or corruption reads 0 because a tier
+        // aura outlived the gear that granted it - so retry instead of staying inert, and
+        // fall back to the trigger's own cylinder, which is the test this script used
+        // before the radius was made to scale.
+        if (_radius <= 0.0f)
+            _radius = CalculateRadius();
 
         // The Eye only ever hits the player who summoned it, so there is no target list to
         // walk - "while you remain in range" is just a distance test on that one player.
         // Deliberately 2d: the zone is a cylinder, so height is not part of the test.
-        if (caster->IsWithinDist2d(at, _radius))
+        // IsWithinDist2d adds the caster's CombatReach on top of the radius passed in.
+        bool const inRange = _radius > 0.0f
+            ? caster->IsWithinDist2d(at, _radius)
+            : at->GetInsideUnits().count(caster->GetGUID()) != 0;
+
+        TC_LOG_DEBUG("scripts.corruption", "Eye of Corruption: tick, radius %.2f, dist %.2f, in range %u",
+            _radius, caster->GetExactDist2d(at), uint32(inRange));
+
+        if (inRange)
             caster->CastSpell(caster, SPELL_EYE_OF_CORRUPTION_DAMAGE, true);
     }
 
 private:
+    float CalculateRadius() const
+    {
+        Player* player = at->GetCaster() ? at->GetCaster()->ToPlayer() : nullptr;
+        return player ? player->GetEffectiveCorruption() * EyeOfCorruption::RadiusPerCorruption : 0.0f;
+    }
+
     float _radius;
 };
 
