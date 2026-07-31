@@ -204,9 +204,15 @@ struct at_corruption_eye_of_corruption : AreaTriggerAI
         // The Eye only ever hits the player who summoned it, so there is no target list to
         // walk - "while you remain in range" is just a distance test on that one player.
         // Deliberately 2d: the zone is a cylinder, so height is not part of the test.
-        // IsWithinDist2d adds the caster's CombatReach on top of the radius passed in.
+        //
+        // Measured centre to centre, and not with IsWithinDist2d, which expands to
+        // IsInDist2d(pos, dist + GetObjectSize()) and so quietly adds the player's
+        // CombatReach to whatever radius it is handed (Object.cpp:1100). That made the
+        // damage zone larger than the ring drawn for it - by a yard and a half on a small
+        // race and several on a large one - and the player was hit outside the visible
+        // edge. The graphic is scaled to exactly _radius below, so the test must be too.
         bool const inRange = _radius > 0.0f
-            ? caster->IsWithinDist2d(at, _radius)
+            ? caster->GetExactDist2d(at) <= _radius
             : at->GetInsideUnits().count(caster->GetGUID()) != 0;
 
         TC_LOG_DEBUG("scripts.corruption", "Eye of Corruption: tick, radius %.2f, dist %.2f, in range %u",
@@ -322,6 +328,10 @@ struct npc_corruption_thing_from_beyond : ScriptedAI
         float const rate = std::min(GrandDelusions::SpeedRateMax,
             GrandDelusions::SpeedRateAtThreshold
                 + std::max(0.0f, corruption - GrandDelusions::Threshold) * GrandDelusions::SpeedRatePerPoint);
+
+        TC_LOG_DEBUG("scripts.corruption", "Thing From Beyond: spawned for %s at corruption %.1f, "
+            "speed rate %.2f, %.1f yards away",
+            _summonerGuid.ToString().c_str(), corruption, rate, me->GetExactDist2d(player));
 
         me->SetSpeedRate(MOVE_RUN, rate);
         me->GetMotionMaster()->MoveChase(player);
