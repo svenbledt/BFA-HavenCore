@@ -5527,7 +5527,11 @@ void Player::UpdateRating(CombatRating cr)
             break;
         case CR_CORRUPTION:
         case CR_CORRUPTION_RESISTANCE:
-            UpdateCorruption();
+            // Bulk rebuilds strip every item's corruption before re-applying it, so syncing per
+            // mutation would walk the total down to zero and tear down each tier's aura on the
+            // way. Callers that clear this flag are responsible for one sync when they finish.
+            if (affectStats)
+                UpdateCorruption();
             break;
         case CR_SPEED:
         case CR_RESILIENCE_PLAYER_DAMAGE:
@@ -30834,12 +30838,16 @@ void Player::CreateChallengeKey(Item* item)
 void Player::SetEffectiveLevelAndMaxItemLevel(uint32 effectiveLevel, uint32 maxItemLevel)
 {
     float healthPct = GetHealthPct();
+    SetCanModifyStats(false);
     _RemoveAllItemMods();
 
     SetUpdateFieldValue(m_values.ModifyValue(&Unit::m_unitData).ModifyValue(&UF::UnitData::EffectiveLevel), effectiveLevel);
     SetUpdateFieldValue(m_values.ModifyValue(&Unit::m_unitData).ModifyValue(&UF::UnitData::MaxItemLevel), maxItemLevel);
 
     _ApplyAllItemMods();
+    SetCanModifyStats(true);
+    UpdateCorruption();
+
     UpdateAverageItemLevel();
 
     uint32 basemana = 0;
@@ -30867,9 +30875,16 @@ void Player::UpdateItemLevelAreaBasedScaling()
     if (_usePvpItemLevels != pvpActivity)
     {
         float healthPct = GetHealthPct();
+        SetCanModifyStats(false);
         _RemoveAllItemMods();
         ActivatePvpItemLevels(pvpActivity);
         _ApplyAllItemMods();
+        SetCanModifyStats(true);
+        // The bracket defers every derived stat, not only corruption, and neither item-mod pass
+        // recomputes on its own - so settle them all once here, as _ApplyAllStatBonuses does.
+        // This reaches UpdateCorruption through UpdateAllRatings, and leaves the max health the
+        // line below scales against freshly computed rather than one rebuild stale.
+        UpdateAllStats();
         SetHealth(CalculatePct(GetMaxHealth(), healthPct));
     }
     // @todo other types of power scaling
