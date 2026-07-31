@@ -52,14 +52,12 @@ enum CorruptionSpells
 // Grasping Tendrils, 1+ Corruption. Container 315175 procs on damage taken and
 // triggers this 5 second snare.
 //
-// The curve below is "slow% = corruption + 10", reported secondhand from Wowhead's
-// 8.3 PTR article "Corruption Debuff Breakpoints and Scaling of Debuffs". That
-// article's body renders client-side and is not recoverable from the live page or
-// the Wayback snapshot, so this could not be confirmed at its primary source.
-// It is used because it fits what can be checked: the tier unlocks at 1 Corruption,
-// where a purely multiplicative curve would land on ~0% and make the tier inert at
-// its own threshold, and a flat 1% per point matches a tooltip that promises smooth
-// growth with no breakpoints. Treat the three constants as tunable, not as gospel.
+// The curve below is confirmed at its primary source. Wowhead's 8.3 PTR article
+// "Corrupted Items - Corruption Debuff Breakpoints and Scaling of Debuffs" (news
+// 295810) states it outright - "The magnitude of the slow is equal to {Corruption +
+// 10}" - and tabulates it from 10 corruption (20%) to 90 corruption (100%), which is
+// exactly what these constants produce. The same article gives the proc rate as 1 RPPM
+// and notes the debuff is magic and dispellable.
 namespace GraspingTendrils
 {
     constexpr float SlowBasePct     = 10.0f;  // snare at zero effective corruption
@@ -105,61 +103,49 @@ class spell_corruption_grasping_tendrils : public AuraScript
 //    The Eye inflicts increasing Shadow damage to you every $s2 sec while you remain
 //    in range. Range and damage increase with further Corruption."
 //
-// Everything in that sentence except the damage number is recoverable data, and is
-// read from it below rather than hardcoded: $d is 8s (SpellDuration index 31), $s2 is
-// 2 (315154 effect 1 BasePoints), the radius is 5 yards (areatrigger_template 22815
-// CylinderDatas.Radius), and the school is Shadow (SpellMisc SchoolMask 32).
+// The timing in that sentence is recoverable data and is read rather than hardcoded: $d
+// is 8s (SpellDuration index 31), $s2 is 2 (315154 effect 1 BasePoints), and the school
+// is Shadow (SpellMisc SchoolMask 32). The two quantities it promises scale with
+// Corruption - "range and damage" - are the ones that are not in the client.
 //
-// Two things are deliberately not implemented:
+// The damage and the radius are not in the client at all. Every scaling field on 315161
+// effect 0 is zero - EffectBasePoints, EffectBonusCoefficient, BonusCoefficientFromAP,
+// Coefficient, Variance, EffectRealPointsPerLevel, ResourceCoefficient and
+// EffectPointsPerResource alike - ContentTuningID is 0, and there is no hotfix row.
+// Retail computed both server-side.
 //
-// "Range ... increase[s] with further Corruption" - template 22815 sets
-// AREATRIGGER_FLAG_HAS_DYNAMIC_SHAPE, which is the mechanism retail grew the Eye with,
-// but AreaTriggerTemplate.h flags it "Implemented for Spheres" and 22815 is a cylinder.
-// Growing only the damage radius would leave a hitbox wider than the visual, which is
-// worse than a fixed radius, so the Eye keeps the template's 5 yards.
+// Both are therefore taken from Wowhead's 8.3 PTR measurements, "Corrupted Items -
+// Corruption Debuff Breakpoints and Scaling of Debuffs" (news 295810), which sampled the
+// live values across corruption levels:
 //
-// The damage per tick is the one number that cannot be recovered. Every scaling field
-// on 315161 effect 0 is zero - EffectBasePoints, EffectBonusCoefficient,
-// BonusCoefficientFromAP, Coefficient, Variance, EffectRealPointsPerLevel,
-// ResourceCoefficient and EffectPointsPerResource alike - and ContentTuningID is 0, so
-// retail did not derive it from content tuning either. There is no hotfix row for it.
-// Blizzard never published the formula and no guide carries anything but the tooltip.
+//   damage per tick   875 * Corruption - 1000      20 -> ~17.2k,  80 -> ~78.4k
+//   radius (yards)    Corruption / 5               20 -> 4 yds,   80 -> 16 yds
 //
-// The only public evidence is players reporting their own numbers, on the 8.3 forum
-// thread "Eye of corruption damage" (us.forums.blizzard.com/en/wow/t/435338):
+// The article calls both approximate - its own damage table drifts a few percent above
+// the formula past 50 corruption, partly because Inevitable Doom starts amplifying all
+// damage taken and the article suspects it of double dipping. The stated formula is used
+// rather than a curve fitted to the table, because the drift is a measurement artefact of
+// another debuff rather than part of this one.
 //
-//   mage,   48 corruption, ilvl ~470   15-19k per tick   ~180k health   ~8.3%
-//   rogue,  48 corruption, same ilvl   32-35k per tick   ~195k health   ~16.4%
-//   pal tank, ~55 corruption           85k per tick      ~350k health   ~24.3%
+// This is a flat figure, not a fraction of health. That is a real difference in kind: the
+// only corruption drawback that works off maximum health is Inescapable Consequences at
+// 200. A flat value is also why the tier bites hardest on the squishiest targets, which
+// is the behaviour the 8.3 forum reports describe.
 //
-// Those disagree because the sample is contaminated, and the thread says how: the tick
-// carries a stacking debuff ("each hit applies a stacking debuff that makes the next
-// one hit harder"), and shadow racials and versatility both cut damage taken. Read
-// through effect 1's 15% per stack, 16.4% is the base plus roughly seven stacks and
-// 24.3% is the base plus roughly eleven - so the mage's unstacked 8.3% is the only
-// figure in the set that reflects the base tick, and it is what the curve is anchored
-// to: 2 + 0.13 * 48 = 8.24% at 48 corruption.
-//
-// This stays a fraction of maximum health rather than a flat number on purpose. A flat
-// value would have to come from an item level or content tuning table, and 315161 has
-// neither, so it would be a second invented constant that also went wrong the moment
-// gear changed. A fraction self-corrects, and it matches the shape of the evidence -
-// the tank, with roughly twice the health, took roughly twice the absolute damage.
-//
-// Treat all three as tunable. They are calibrated against three forum posts, which is
-// the best evidence that exists, not a recovered formula.
+// The tick can critically strike for 150%, which needs no code here - SetHitDamage runs
+// before Spell::DoAllEffectOnTarget applies the crit roll, so the core does it.
 namespace EyeOfCorruption
 {
-    constexpr float DamageBasePct     = 2.0f;   // of max health per tick at zero corruption
-    constexpr float DamagePctPerPoint = 0.13f;  // added per point of effective corruption
-    constexpr float DamageMaxPct      = 25.0f;  // ceiling on one tick before stacks
-    constexpr uint32 DefaultPeriod    = 2;      // seconds, if 315154 ever loses its effect 1
+    constexpr float DamagePerCorruption = 875.0f;  // per point of effective corruption
+    constexpr float DamageFlatOffset    = 1000.0f; // subtracted from the total
+    constexpr float RadiusPerCorruption = 0.2f;    // yards per point, ie corruption / 5
+    constexpr uint32 DefaultPeriod      = 2;       // seconds, if 315154 ever loses its effect 1
 }
 
 // Eye of Corruption - areatrigger 22815, created by 315154
 struct at_corruption_eye_of_corruption : AreaTriggerAI
 {
-    at_corruption_eye_of_corruption(AreaTrigger* areatrigger) : AreaTriggerAI(areatrigger)
+    at_corruption_eye_of_corruption(AreaTrigger* areatrigger) : AreaTriggerAI(areatrigger), _radius(0.0f)
     {
         uint32 period = EyeOfCorruption::DefaultPeriod;
 
@@ -173,18 +159,43 @@ struct at_corruption_eye_of_corruption : AreaTriggerAI
         areatrigger->SetPeriodicProcTimer(period * IN_MILLISECONDS);
     }
 
+    void OnCreate() override
+    {
+        Player* player = at->GetCaster() ? at->GetCaster()->ToPlayer() : nullptr;
+        if (!player)
+            return;
+
+        _radius = player->GetEffectiveCorruption() * EyeOfCorruption::RadiusPerCorruption;
+
+        // The zone has to grow with corruption, and the trigger itself cannot: a cylinder
+        // is searched against GetTemplate()->MaxSearchRadius (AreaTrigger.cpp:511), which
+        // lives on the template every Eye shares, and this core has no per-instance scale
+        // override to drive instead. AREATRIGGER_FLAG_HAS_DYNAMIC_SHAPE is not a way out -
+        // AreaTriggerTemplate.h marks it "Implemented for Spheres" and 22815 is a cylinder.
+        //
+        // So the radius is kept here and tested directly in OnPeriodicProc, and the visual
+        // is scaled by the same ratio so the graphic still shows where the zone ends. That
+        // matters more than it sounds: at 80 corruption the zone is 16 yards against the
+        // template's 5, and an unscaled graphic would leave the player no way to see it.
+        if (float templateRadius = at->GetTemplate()->CylinderDatas.Radius)
+            at->SetObjectScale(_radius / templateRadius);
+    }
+
     void OnPeriodicProc() override
     {
         Unit* caster = at->GetCaster();
-        if (!caster)
+        if (!caster || _radius <= 0.0f)
             return;
 
-        // The Eye only ever hits the player who summoned it, so there is no target list
-        // to walk - "while you remain in range" is just a test of whether that player is
-        // still standing in the cylinder.
-        if (at->GetInsideUnits().count(caster->GetGUID()))
+        // The Eye only ever hits the player who summoned it, so there is no target list to
+        // walk - "while you remain in range" is just a distance test on that one player.
+        // Deliberately 2d: the zone is a cylinder, so height is not part of the test.
+        if (caster->IsWithinDist2d(at, _radius))
             caster->CastSpell(caster, SPELL_EYE_OF_CORRUPTION_DAMAGE, true);
     }
+
+private:
+    float _radius;
 };
 
 // Eye of Corruption - 315161
@@ -203,10 +214,12 @@ class spell_corruption_eye_of_corruption : public SpellScript
         if (!player)
             return;
 
-        float const pct = std::min(EyeOfCorruption::DamageBasePct + player->GetEffectiveCorruption() * EyeOfCorruption::DamagePctPerPoint,
-            EyeOfCorruption::DamageMaxPct);
+        float damage = EyeOfCorruption::DamagePerCorruption * player->GetEffectiveCorruption() - EyeOfCorruption::DamageFlatOffset;
 
-        float damage = CalculatePct(float(target->GetMaxHealth()), pct);
+        // Below about 1.15 corruption the formula is still negative. The tier only unlocks
+        // at 20, so this never fires in practice, but a negative SetHitDamage would heal.
+        if (damage <= 0.0f)
+            return;
 
         // "increasing Shadow damage": every tick leaves a stack behind that raises what
         // the next one lands for. Effect 1 holds the per-stack figure and the client
