@@ -143,7 +143,7 @@ namespace EyeOfCorruption
 {
     constexpr float DamagePerCorruption = 875.0f;  // per point of effective corruption
     constexpr float DamageFlatOffset    = 1000.0f; // subtracted from the total
-    constexpr float RadiusPerCorruption = 0.2f;    // yards per point, ie corruption / 5
+    constexpr float DefaultRadius       = 5.0f;    // yards, if 22815 ever loses its shape data
     constexpr uint32 DefaultPeriod      = 2;       // seconds, if 315154 ever loses its effect 1
 }
 
@@ -166,24 +166,23 @@ struct at_corruption_eye_of_corruption : AreaTriggerAI
 
     void OnCreate() override
     {
-        _radius = CalculateRadius();
+        // The zone is whatever shape the client was told to draw, and nothing else. 22815 is
+        // a cylinder sniffed off retail (VerifiedBuild 34220) with Radius 5, and the misc
+        // template that spawns it carries ScaleCurveId 0, so the client applies no curve and
+        // renders those 5 yards unchanged for the Eye's whole life.
+        //
+        // An earlier version scaled this with corruption and drove the graphic with
+        // SetObjectScale to match. Both halves of that were wrong: the radius is not a
+        // corruption-scaled value in any client data, and object scale did not move the ring
+        // edge in step with it anyway, which is what left the damage cutting outside the ring
+        // the player could see. Reading the one number the client also draws from is what
+        // keeps them honest.
+        _radius = at->GetTemplate()->CylinderDatas.Radius;
+        if (_radius <= 0.0f)
+            _radius = EyeOfCorruption::DefaultRadius;
 
         TC_LOG_DEBUG("scripts.corruption", "Eye of Corruption: spawned, caster %s, radius %.2f",
             at->GetCasterGuid().ToString().c_str(), _radius);
-
-        // The zone has to grow with corruption, and the trigger itself cannot: a cylinder
-        // is searched against GetTemplate()->MaxSearchRadius (AreaTrigger.cpp:511), which
-        // lives on the template every Eye shares, and this core has no per-instance scale
-        // override to drive instead. AREATRIGGER_FLAG_HAS_DYNAMIC_SHAPE is not a way out -
-        // AreaTriggerTemplate.h marks it "Implemented for Spheres" and 22815 is a cylinder.
-        //
-        // So the radius is kept here and tested directly in OnPeriodicProc, and the visual
-        // is scaled by the same ratio so the graphic still shows where the zone ends. That
-        // matters more than it sounds: at 80 corruption the zone is 16 yards against the
-        // template's 5, and an unscaled graphic would leave the player no way to see it.
-        if (_radius > 0.0f)
-            if (float templateRadius = at->GetTemplate()->CylinderDatas.Radius)
-                at->SetObjectScale(_radius / templateRadius);
     }
 
     void OnPeriodicProc() override
@@ -192,28 +191,17 @@ struct at_corruption_eye_of_corruption : AreaTriggerAI
         if (!caster)
             return;
 
-        // A radius of zero used to end the tick here, which meant one bad reading at
-        // creation silenced the Eye for its whole eight seconds. OnCreate can legitimately
-        // come up empty - the caster may not resolve, or corruption reads 0 because a tier
-        // aura outlived the gear that granted it - so retry instead of staying inert, and
-        // fall back to the trigger's own cylinder, which is the test this script used
-        // before the radius was made to scale.
-        if (_radius <= 0.0f)
-            _radius = CalculateRadius();
-
         // The Eye only ever hits the player who summoned it, so there is no target list to
         // walk - "while you remain in range" is just a distance test on that one player.
         // Deliberately 2d: the zone is a cylinder, so height is not part of the test.
         //
-        // Measured centre to centre, and not with IsWithinDist2d, which expands to
-        // IsInDist2d(pos, dist + GetObjectSize()) and so quietly adds the player's
-        // CombatReach to whatever radius it is handed (Object.cpp:1100). That made the
-        // damage zone larger than the ring drawn for it - by a yard and a half on a small
-        // race and several on a large one - and the player was hit outside the visible
-        // edge. The graphic is scaled to exactly _radius below, so the test must be too.
-        bool const inRange = _radius > 0.0f
-            ? caster->GetExactDist2d(at) <= _radius
-            : at->GetInsideUnits().count(caster->GetGUID()) != 0;
+        // Measured centre to centre. Neither IsWithinDist2d nor the trigger's own
+        // GetInsideUnits() will do, and for the same reason: both end up in IsInDist, which
+        // adds the player's GetObjectSize() to the radius it was handed (Object.cpp:1100).
+        // That pads the damage zone past the drawn ring by the player's CombatReach - a yard
+        // and a half on a small race, several on a large one - so the player takes damage
+        // standing outside the edge they can see.
+        bool const inRange = caster->GetExactDist2d(at) <= _radius;
 
         TC_LOG_DEBUG("scripts.corruption", "Eye of Corruption: tick, radius %.2f, dist %.2f, in range %u",
             _radius, caster->GetExactDist2d(at), uint32(inRange));
@@ -223,12 +211,6 @@ struct at_corruption_eye_of_corruption : AreaTriggerAI
     }
 
 private:
-    float CalculateRadius() const
-    {
-        Player* player = at->GetCaster() ? at->GetCaster()->ToPlayer() : nullptr;
-        return player ? player->GetEffectiveCorruption() * EyeOfCorruption::RadiusPerCorruption : 0.0f;
-    }
-
     float _radius;
 };
 
