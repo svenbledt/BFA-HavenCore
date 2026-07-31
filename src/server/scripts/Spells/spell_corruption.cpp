@@ -118,14 +118,41 @@ class spell_corruption_grasping_tendrils : public AuraScript
 // Growing only the damage radius would leave a hitbox wider than the visual, which is
 // worse than a fixed radius, so the Eye keeps the template's 5 yards.
 //
-// The damage per tick - like every other corruption magnitude, 315161 effect 0 carries
-// BasePoints 0, and here ContentTuningID is 0 too, so retail did not even derive it
-// from content tuning. The curve below is invented to fit the tooltip, not recovered.
+// The damage per tick is the one number that cannot be recovered. Every scaling field
+// on 315161 effect 0 is zero - EffectBasePoints, EffectBonusCoefficient,
+// BonusCoefficientFromAP, Coefficient, Variance, EffectRealPointsPerLevel,
+// ResourceCoefficient and EffectPointsPerResource alike - and ContentTuningID is 0, so
+// retail did not derive it from content tuning either. There is no hotfix row for it.
+// Blizzard never published the formula and no guide carries anything but the tooltip.
+//
+// The only public evidence is players reporting their own numbers, on the 8.3 forum
+// thread "Eye of corruption damage" (us.forums.blizzard.com/en/wow/t/435338):
+//
+//   mage,   48 corruption, ilvl ~470   15-19k per tick   ~180k health   ~8.3%
+//   rogue,  48 corruption, same ilvl   32-35k per tick   ~195k health   ~16.4%
+//   pal tank, ~55 corruption           85k per tick      ~350k health   ~24.3%
+//
+// Those disagree because the sample is contaminated, and the thread says how: the tick
+// carries a stacking debuff ("each hit applies a stacking debuff that makes the next
+// one hit harder"), and shadow racials and versatility both cut damage taken. Read
+// through effect 1's 15% per stack, 16.4% is the base plus roughly seven stacks and
+// 24.3% is the base plus roughly eleven - so the mage's unstacked 8.3% is the only
+// figure in the set that reflects the base tick, and it is what the curve is anchored
+// to: 2 + 0.13 * 48 = 8.24% at 48 corruption.
+//
+// This stays a fraction of maximum health rather than a flat number on purpose. A flat
+// value would have to come from an item level or content tuning table, and 315161 has
+// neither, so it would be a second invented constant that also went wrong the moment
+// gear changed. A fraction self-corrects, and it matches the shape of the evidence -
+// the tank, with roughly twice the health, took roughly twice the absolute damage.
+//
+// Treat all three as tunable. They are calibrated against three forum posts, which is
+// the best evidence that exists, not a recovered formula.
 namespace EyeOfCorruption
 {
     constexpr float DamageBasePct     = 2.0f;   // of max health per tick at zero corruption
-    constexpr float DamagePctPerPoint = 0.05f;  // added per point of effective corruption
-    constexpr float DamageMaxPct      = 10.0f;  // ceiling on one tick before stacks
+    constexpr float DamagePctPerPoint = 0.13f;  // added per point of effective corruption
+    constexpr float DamageMaxPct      = 25.0f;  // ceiling on one tick before stacks
     constexpr uint32 DefaultPeriod    = 2;      // seconds, if 315154 ever loses its effect 1
 }
 
