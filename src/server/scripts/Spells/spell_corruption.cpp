@@ -290,11 +290,15 @@ class spell_corruption_eye_of_corruption : public SpellScript
 //     hostile. It also carries SUMMON_PROP_FLAG_PERSONAL_SPAWN, so only the summoner ever
 //     sees their own Thing.
 //
-// What the client does not supply is the pursuit speed or the damage on contact. The
-// article gives no formula for either - only that the speed scales with corruption and
-// that a hit deals "about your health". Both constants below are therefore documented
-// approximations, in the same sense as the header note at the top of this file, and both
-// are isolated so they can be retuned without touching the logic.
+//   - creature_template leaves BaseAttackTime 0, which ObjectMgr.cpp:1093 turns into the
+//     2 second default, so the Thing has a swing timer to strike on.
+//
+// What the client does not supply is the pursuit speed or the damage. The article gives no
+// formula for either - only that the speed scales with corruption, and that the Thing
+// "reaching you deals about your health in damage", which the author never saw happen and
+// reports second-hand. Both constants below are therefore documented approximations, in the
+// same sense as the header note at the top of this file, and both are isolated so they can be
+// retuned without touching the logic.
 namespace GrandDelusions
 {
     constexpr uint32 ContainerSpell       = 315184;  // the debuff the player carries
@@ -302,14 +306,20 @@ namespace GrandDelusions
     constexpr float SpeedRateAtThreshold  = 0.75f;   // 5.25 yd/s against a player's 7.0
     constexpr float SpeedRatePerPoint     = 0.0125f; // reaches parity at 60, overtakes above
     constexpr float SpeedRateMax          = 2.0f;
-    constexpr float DamagePctOfMaxHealth  = 100.0f;  // "about your health"
-    constexpr uint32 StrikeCooldown       = 2000;    // ms between strikes, ie a melee swing
+
+    // "About your health" is what a full pursuit costs you, not what one swing does. The Thing
+    // strikes on its own attack speed for as long as it stays on you, so the total is divided
+    // across the strikes it can land in its lifetime, and being caught late costs less than
+    // being caught at once. Both halves of that division are read from the summon - only the
+    // total is a constant here.
+    constexpr float TotalDamagePctOfMaxHealth = 90.0f;
 }
 
 // Thing From Beyond - creature 161895, summoned by 315186
 struct npc_corruption_thing_from_beyond : ScriptedAI
 {
-    npc_corruption_thing_from_beyond(Creature* creature) : ScriptedAI(creature), _strikeCooldown(0) { }
+    npc_corruption_thing_from_beyond(Creature* creature) : ScriptedAI(creature),
+        _strikeCooldown(0), _damagePctPerStrike(GrandDelusions::TotalDamagePctOfMaxHealth) { }
 
     void IsSummonedBy(Unit* summoner) override
     {
@@ -331,10 +341,22 @@ struct npc_corruption_thing_from_beyond : ScriptedAI
         // players carry no resistance of their own in this expansion, so the hit lands whole.
         me->SetLevel(player->getLevel());
 
-        // The Thing is a movement puzzle, not a fight: it chases one player and bursts on
-        // contact. Passive keeps it from picking up an ordinary melee swing on the way,
-        // which would both pre-damage the target and drag it into normal combat and evade
-        // handling. The player can still kill it - it is hostile, just not an attacker.
+        // Spread the pursuit's total across the strikes it has time for. Both numbers are the
+        // summon's own: GetBaseAttackTime is the creature's swing timer (creature_template
+        // leaves it 0, which ObjectMgr.cpp:1093 turns into the 2 second default), and
+        // TempSummon::GetTimer is its remaining life, still the full 8 seconds here because
+        // InitSummon runs immediately after InitStats set it.
+        uint32 const swingTime = me->GetBaseAttackTime(BASE_ATTACK);
+        uint32 const pursuitTime = me->ToTempSummon() ? me->ToTempSummon()->GetTimer() : 0;
+        uint32 const strikes = (swingTime && pursuitTime) ? std::max(1u, pursuitTime / swingTime) : 1;
+
+        _damagePctPerStrike = GrandDelusions::TotalDamagePctOfMaxHealth / float(strikes);
+
+        // The Thing is a movement puzzle, not a fight: it chases one player and strikes for as
+        // long as it can stay on them. Passive keeps the core's own melee out of it, which
+        // would otherwise land ordinary swings alongside the scripted ones and drag the Thing
+        // into normal combat and evade handling. The player can still kill it - it is hostile,
+        // just not an attacker in the core's sense.
         me->SetReactState(REACT_PASSIVE);
 
         float const corruption = player->GetEffectiveCorruption();
@@ -391,16 +413,16 @@ struct npc_corruption_thing_from_beyond : ScriptedAI
             return;
         }
 
-        uint32 const damage = CalculatePct(player->GetMaxHealth(), GrandDelusions::DamagePctOfMaxHealth);
+        uint32 const damage = CalculatePct(player->GetMaxHealth(), _damagePctPerStrike);
 
         SpellNonMeleeDamage damageInfo(me, player, damageSpell->Id,
             damageSpell->GetSpellXSpellVisualId(me), SPELL_SCHOOL_MASK_SHADOW);
         me->CalculateSpellDamageTaken(&damageInfo, int32(damage), damageSpell);
 
-        TC_LOG_DEBUG("scripts.corruption", "Thing From Beyond: reached %s, dealing %u of %u max health "
-            "(%u before mitigation, %u absorbed, %u resisted)",
+        TC_LOG_DEBUG("scripts.corruption", "Thing From Beyond: struck %s for %u of %u max health "
+            "(%.1f%% per strike, %u before mitigation, %u absorbed, %u resisted)",
             _summonerGuid.ToString().c_str(), damageInfo.damage, uint32(player->GetMaxHealth()),
-            damage, damageInfo.absorb, damageInfo.resist);
+            _damagePctPerStrike, damage, damageInfo.absorb, damageInfo.resist);
 
         me->SendSpellNonMeleeDamageLog(&damageInfo);
         me->DealSpellDamage(&damageInfo, false);
@@ -415,14 +437,15 @@ struct npc_corruption_thing_from_beyond : ScriptedAI
         // the instant it strikes would do nothing at all, so the strike is an event during
         // the pursuit and the pursuit continues through it.
         //
-        // What no source gives is how often it can strike. A swing timer's worth is the
-        // assumption here, isolated in StrikeCooldown with the rest of the approximations.
-        _strikeCooldown = GrandDelusions::StrikeCooldown;
+        // It strikes on its own attack speed, so a player who is caught immediately eats the
+        // whole pursuit and one who is caught in the last second eats a quarter of it.
+        _strikeCooldown = me->GetBaseAttackTime(BASE_ATTACK);
     }
 
 private:
     ObjectGuid _summonerGuid;
     uint32 _strikeCooldown;
+    float _damagePctPerStrike;
 };
 
 void AddSC_corruption_spell_scripts()
