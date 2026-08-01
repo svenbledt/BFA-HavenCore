@@ -143,6 +143,7 @@ namespace EyeOfCorruption
 {
     constexpr float DamagePerCorruption = 875.0f;  // per point of effective corruption
     constexpr float DamageFlatOffset    = 1000.0f; // subtracted from the total
+    constexpr float RadiusPerCorruption = 0.2f;    // yards per point, ie corruption / 5
     constexpr float DefaultRadius       = 5.0f;    // yards, if 22815 ever loses its shape data
     constexpr uint32 DefaultPeriod      = 2;       // seconds, if 315154 ever loses its effect 1
 }
@@ -166,23 +167,42 @@ struct at_corruption_eye_of_corruption : AreaTriggerAI
 
     void OnCreate() override
     {
-        // The zone is whatever shape the client was told to draw, and nothing else. 22815 is
-        // a cylinder sniffed off retail (VerifiedBuild 34220) with Radius 5, and the misc
-        // template that spawns it carries ScaleCurveId 0, so the client applies no curve and
-        // renders those 5 yards unchanged for the Eye's whole life.
+        // "The size and damage of the corrupted zone increase with higher Corruption", and the
+        // article gives the size the same treatment as the damage: radius = Corruption / 5,
+        // tabulated 20 -> 4 yards through 80 -> 16. It also says how retail achieved it - the
+        // zone "just increase[s] the size of a graphic that isn't supposed to be large" - so
+        // the drawn ring is the base shape rescaled, not a different shape.
         //
-        // An earlier version scaled this with corruption and drove the graphic with
-        // SetObjectScale to match. Both halves of that were wrong: the radius is not a
-        // corruption-scaled value in any client data, and object scale did not move the ring
-        // edge in step with it anyway, which is what left the damage cutting outside the ring
-        // the player could see. Reading the one number the client also draws from is what
-        // keeps them honest.
-        _radius = at->GetTemplate()->CylinderDatas.Radius;
-        if (_radius <= 0.0f)
-            _radius = EyeOfCorruption::DefaultRadius;
+        // 22815 is that base shape: a cylinder sniffed off retail (VerifiedBuild 34220) with
+        // Radius 5, which is the size the client draws with no override, and which lines up
+        // with corruption 25. Everything else is that radius times a scale.
+        //
+        // Both numbers below come off the same division, which is the point. An earlier
+        // version scaled the radius but drove the graphic with SetObjectScale, and the two did
+        // not move together - the damage cut outside the ring the player could see.
+        // SetOverrideScaleCurve is the field the client actually resizes an areatrigger from,
+        // so the ring edge and the range test are now the same edge by construction.
+        float const templateRadius = at->GetTemplate()->CylinderDatas.Radius > 0.0f
+            ? at->GetTemplate()->CylinderDatas.Radius
+            : EyeOfCorruption::DefaultRadius;
 
-        TC_LOG_DEBUG("scripts.corruption", "Eye of Corruption: spawned, caster %s, radius %.2f",
-            at->GetCasterGuid().ToString().c_str(), _radius);
+        _radius = templateRadius;
+
+        if (Player* player = at->GetCaster() ? at->GetCaster()->ToPlayer() : nullptr)
+        {
+            // A zero reading is possible - a tier aura can outlive the gear that granted it -
+            // and it must not shrink the zone to nothing. Falling back to the drawn shape
+            // leaves the Eye behaving exactly as it does with no scaling applied.
+            float const scaled = player->GetEffectiveCorruption() * EyeOfCorruption::RadiusPerCorruption;
+            if (scaled > 0.0f)
+                _radius = scaled;
+        }
+
+        at->SetOverrideScaleCurve(_radius / templateRadius);
+
+        TC_LOG_DEBUG("scripts.corruption", "Eye of Corruption: spawned, caster %s, radius %.2f "
+            "(template %.2f, scale %.2f)",
+            at->GetCasterGuid().ToString().c_str(), _radius, templateRadius, _radius / templateRadius);
     }
 
     void OnPeriodicProc() override
