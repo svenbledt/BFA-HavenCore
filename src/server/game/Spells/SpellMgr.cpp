@@ -4094,18 +4094,6 @@ void SpellMgr::LoadSpellInfoCorrections()
         spellInfo->AttributesEx8 |= SPELL_ATTR8_AURA_SEND_AMOUNT;
     });
 
-    // Corruption: Grand Delusions summons the Thing from Beyond, and the extracted
-    // SpellEffect points it at 161895 - a template whose only model is display 11686, the
-    // invisible stalker that 8467 other templates in world use for bunnies and kill credit.
-    // It spawned, chased and killed the player with nothing ever drawn on screen. 160966 is
-    // the same creature with the model it is supposed to have (display 92610), so the summon
-    // is repointed here rather than by hotfixing spell_effect, which would mean restating
-    // all thirty columns of the row to change one of them.
-    ApplySpellFix({ 315186 }, [](SpellInfo* spellInfo)
-    {
-        const_cast<SpellEffectInfo*>(spellInfo->GetEffect(EFFECT_0))->MiscValue = 160966;
-    });
-
     SpellInfo* spellInfo = nullptr;
     for (uint32 i = 0; i < GetSpellInfoStoreSize(); ++i)
     {

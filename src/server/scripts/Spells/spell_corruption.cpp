@@ -302,6 +302,7 @@ class spell_corruption_eye_of_corruption : public SpellScript
 namespace GrandDelusions
 {
     constexpr uint32 ContainerSpell       = 315184;  // the debuff the player carries
+    constexpr uint32 CloneCasterSpell     = 60352;   // generic Clone Caster, see IsSummonedBy
     constexpr float Threshold             = 40.0f;   // CorruptionEffects.db2 MinCorruption
     constexpr float SpeedRateAtThreshold  = 0.75f;   // 5.25 yd/s against a player's 7.0
     constexpr float SpeedRatePerPoint     = 0.0125f; // reaches parity at 60, overtakes above
@@ -332,13 +333,36 @@ struct npc_corruption_thing_from_beyond : ScriptedAI
 
         _summonerGuid = player->GetGUID();
 
-        // Level the Thing to its summoner, or half the hit is resisted before it lands.
-        // GetEffectiveResistChance adds (victim level - attacker level) * 5 resistance
-        // (Unit.cpp:1861), and creature_template 160966 is level 1 - the display-only variant
-        // of this creature, which is why it has the model 161895 lacks. Against a level 120
-        // player that is 595 resistance over a constant of 600, so an average resist of 49.8%,
-        // which is exactly what the damage log showed. Matching levels zeroes the term, and
-        // players carry no resistance of their own in this expansion, so the hit lands whole.
+        // Wear the summoner's face. The only creature_template_model row for 161895 is display
+        // 11686 - the invisible stalker that 8467 other templates in world use for bunnies and
+        // kill credit - and that is not an oversight to be routed around: retail's Thing From
+        // Beyond is a copy of the player it is chasing, so the model was never meant to come
+        // from the template. An earlier version repointed the summon at 160966, a level 1
+        // variant carrying display 92610, which drew something but drew the wrong thing.
+        //
+        // The clone has to be a real aura, not just a display id. WorldSession::
+        // HandleMirrorImageDataRequest (SpellHandler.cpp:534) answers the client's request for
+        // the copy's gear and features only if the unit actually carries SPELL_AURA_CLONE_CASTER,
+        // and it reads the appearance off that aura's caster - so the player must cast it, and
+        // setting UNIT_FLAG2_MIRROR_IMAGE by hand would leave the client asking a question
+        // nothing answers. 60352 is the core's generic Clone Caster: one effect, aura 247, no
+        // duration, no script attached, and already used this exact way by mage Mirror Image
+        // (spell_mage.cpp:2638) and by the Amalgam of Souls echoes.
+        //
+        // Nothing in the corruption chain does this - 315184 is a bare proc trigger and 315186 a
+        // bare summon - so retail drove it from creature data the client never shipped, the same
+        // as the contact damage below.
+        player->CastSpell(me, GrandDelusions::CloneCasterSpell, true);
+
+        // Level the Thing to its summoner. GetEffectiveResistChance adds
+        // (victim level - attacker level) * 5 resistance (Unit.cpp:1861), so a Thing below its
+        // target's level has half its damage resisted away before it lands - at level 1 against
+        // a level 120 player that is 595 resistance over a constant of 600, an average resist of
+        // 49.8%, which is what the damage log showed while the summon was still repointed at
+        // 160966. 161895 is level 120 and so already correct at the cap, but a mirror of the
+        // player should be the player's level at any level, and matching them zeroes the term in
+        // both directions. Players carry no resistance of their own in this expansion, so the
+        // hit then lands whole.
         me->SetLevel(player->getLevel());
 
         // Spread the pursuit's total across the strikes it has time for. Both numbers are the
