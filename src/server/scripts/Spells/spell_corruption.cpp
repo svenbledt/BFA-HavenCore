@@ -304,6 +304,24 @@ namespace GrandDelusions
     constexpr uint32 ContainerSpell       = 315184;  // the debuff the player carries
     constexpr uint32 CloneCasterSpell     = 60352;   // generic Clone Caster, see IsSummonedBy
     constexpr float Threshold             = 40.0f;   // CorruptionEffects.db2 MinCorruption
+
+    // The look, taken from the client rather than invented. SpellXSpellVisual points 315186 at
+    // SpellVisual 94321, and SpellVisualEvent gives that visual exactly two entries: kit 122670
+    // at offset 0 and kit 122671 at offset 1000, both on the target. Those two kits are shared
+    // with SpellVisual 93517, which belongs to 306955 "Madness: Dark Delusions" - the Horrific
+    // Vision spell that summons Dark Delusion (creature 157425) to chase you the same way. Two
+    // different encounters reusing one pair of kits is what identifies them as the pursuer
+    // effect itself rather than anything specific to a cast, so replaying them on the summon is
+    // reproducing retail's own data, not approximating it.
+    //
+    // The server has to send them. A summon spell's visual plays on the cast - source is the
+    // player, target is the summon destination - and nothing in that chain reaches the creature
+    // that the cast produced, so a client left to itself draws the clone with no effect on it.
+    // That is exactly what was reported: the right body, none of the colour.
+    constexpr uint32 VisualKitSpawn       = 122670;
+    constexpr uint32 VisualKitSustain     = 122671;
+    constexpr uint32 VisualKitSustainDelay = 1000;   // SpellVisualEvent offset for the second kit
+
     constexpr float SpeedRateAtThreshold  = 0.75f;   // 5.25 yd/s against a player's 7.0
     constexpr float SpeedRatePerPoint     = 0.0125f; // reaches parity at 60, overtakes above
     constexpr float SpeedRateMax          = 2.0f;
@@ -320,7 +338,8 @@ namespace GrandDelusions
 struct npc_corruption_thing_from_beyond : ScriptedAI
 {
     npc_corruption_thing_from_beyond(Creature* creature) : ScriptedAI(creature),
-        _strikeCooldown(0), _damagePctPerStrike(GrandDelusions::TotalDamagePctOfMaxHealth) { }
+        _strikeCooldown(0), _sustainVisualTimer(0), _chaseReportTimer(0),
+        _damagePctPerStrike(GrandDelusions::TotalDamagePctOfMaxHealth) { }
 
     void IsSummonedBy(Unit* summoner) override
     {
@@ -408,6 +427,14 @@ struct npc_corruption_thing_from_beyond : ScriptedAI
             me->HasAuraType(SPELL_AURA_CLONE_CASTER) ? "applied" : "MISSING",
             me->GetDisplayId(), player->GetDisplayId(), me->GetNativeDisplayId());
 
+        // Dress the clone. The kits are the ones SpellVisual 94321 would have run had the
+        // client been told to run them on this creature; the second one follows a second
+        // later because that is the offset SpellVisualEvent records for it. The first is
+        // given the pursuit's own length as its duration so the effect lasts exactly as long
+        // as the Thing does rather than being cut to a default.
+        me->SendPlaySpellVisualKit(GrandDelusions::VisualKitSpawn, 0, pursuitTime);
+        _sustainVisualTimer = GrandDelusions::VisualKitSustainDelay;
+
         me->SetSpeedRate(MOVE_RUN, rate);
         me->GetMotionMaster()->MoveChase(player);
     }
@@ -423,6 +450,41 @@ struct npc_corruption_thing_from_beyond : ScriptedAI
             me->DespawnOrUnsummon();
             return;
         }
+
+        // Second half of the summon's visual, at the offset SpellVisualEvent gives it.
+        if (_sustainVisualTimer)
+        {
+            if (_sustainVisualTimer <= diff)
+            {
+                me->SendPlaySpellVisualKit(GrandDelusions::VisualKitSustain, 0, 0);
+                _sustainVisualTimer = 0;
+            }
+            else
+                _sustainVisualTimer -= diff;
+        }
+
+        // A pursuit that arrives and then stands there is indistinguishable, from outside, from
+        // one that never arrived: the report was "it run to me and then stand still without
+        // hitting me". Every quantity the strike depends on is printed once a second so the next
+        // run says which one is wrong instead of leaving it to be guessed. IsWithinMeleeRange
+        // measures in three dimensions while the chase generator stops on a two dimensional
+        // check, so the height difference is carried too - that gap is the one way the two can
+        // disagree about whether the Thing is close enough.
+        if (_chaseReportTimer <= diff)
+        {
+            TC_LOG_DEBUG("scripts.corruption", "Thing From Beyond: dist %.2f (2d %.2f, dz %.2f), "
+                "melee range %.2f, reach %.2f/%.2f, movegen %u, moving %u, evade %u, combat %u, "
+                "strike cooldown %u, run speed %.2f",
+                me->GetExactDist(player), me->GetExactDist2d(player),
+                me->GetPositionZ() - player->GetPositionZ(), me->GetMeleeRange(player),
+                me->GetCombatReach(), player->GetCombatReach(),
+                uint32(me->GetMotionMaster()->GetCurrentMovementGeneratorType()),
+                uint32(me->isMoving()), uint32(me->IsInEvadeMode()), uint32(me->IsInCombat()),
+                _strikeCooldown, me->GetSpeed(MOVE_RUN));
+            _chaseReportTimer = 1000;
+        }
+        else
+            _chaseReportTimer -= diff;
 
         if (_strikeCooldown > diff)
         {
@@ -485,6 +547,8 @@ struct npc_corruption_thing_from_beyond : ScriptedAI
 private:
     ObjectGuid _summonerGuid;
     uint32 _strikeCooldown;
+    uint32 _sustainVisualTimer;
+    uint32 _chaseReportTimer;
     float _damagePctPerStrike;
 };
 
