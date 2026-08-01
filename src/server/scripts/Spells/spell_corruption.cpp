@@ -303,12 +303,13 @@ namespace GrandDelusions
     constexpr float SpeedRatePerPoint     = 0.0125f; // reaches parity at 60, overtakes above
     constexpr float SpeedRateMax          = 2.0f;
     constexpr float DamagePctOfMaxHealth  = 100.0f;  // "about your health"
+    constexpr uint32 StrikeCooldown       = 2000;    // ms between strikes, ie a melee swing
 }
 
 // Thing From Beyond - creature 161895, summoned by 315186
 struct npc_corruption_thing_from_beyond : ScriptedAI
 {
-    npc_corruption_thing_from_beyond(Creature* creature) : ScriptedAI(creature) { }
+    npc_corruption_thing_from_beyond(Creature* creature) : ScriptedAI(creature), _strikeCooldown(0) { }
 
     void IsSummonedBy(Unit* summoner) override
     {
@@ -320,6 +321,15 @@ struct npc_corruption_thing_from_beyond : ScriptedAI
         }
 
         _summonerGuid = player->GetGUID();
+
+        // Level the Thing to its summoner, or half the hit is resisted before it lands.
+        // GetEffectiveResistChance adds (victim level - attacker level) * 5 resistance
+        // (Unit.cpp:1861), and creature_template 160966 is level 1 - the display-only variant
+        // of this creature, which is why it has the model 161895 lacks. Against a level 120
+        // player that is 595 resistance over a constant of 600, so an average resist of 49.8%,
+        // which is exactly what the damage log showed. Matching levels zeroes the term, and
+        // players carry no resistance of their own in this expansion, so the hit lands whole.
+        me->SetLevel(player->getLevel());
 
         // The Thing is a movement puzzle, not a fight: it chases one player and bursts on
         // contact. Passive keeps it from picking up an ordinary melee swing on the way,
@@ -340,7 +350,7 @@ struct npc_corruption_thing_from_beyond : ScriptedAI
         me->GetMotionMaster()->MoveChase(player);
     }
 
-    void UpdateAI(uint32 /*diff*/) override
+    void UpdateAI(uint32 diff) override
     {
         if (_summonerGuid.IsEmpty())
             return;
@@ -349,6 +359,12 @@ struct npc_corruption_thing_from_beyond : ScriptedAI
         if (!player || !player->IsAlive())
         {
             me->DespawnOrUnsummon();
+            return;
+        }
+
+        if (_strikeCooldown > diff)
+        {
+            _strikeCooldown -= diff;
             return;
         }
 
@@ -389,12 +405,24 @@ struct npc_corruption_thing_from_beyond : ScriptedAI
         me->SendSpellNonMeleeDamageLog(&damageInfo);
         me->DealSpellDamage(&damageInfo, false);
 
-        // One hit and it is spent - it does not linger to hit again inside its 8 seconds.
-        me->DespawnOrUnsummon();
+        // The Thing is not spent by connecting. "Pursues you for 8 sec" is the whole of what
+        // the tooltip says about its life, and it says nothing about it leaving on contact;
+        // the 8 seconds are the escape window, not a countdown to one guaranteed hit.
+        //
+        // Cascading Disaster settles it. Its tooltip reads "If you are struck by the Thing
+        // From Beyond, you will be immediately afflicted by Grasping Tendrils and Eye of
+        // Corruption" - being struck snares you. A snare applied by a pursuer that vanishes
+        // the instant it strikes would do nothing at all, so the strike is an event during
+        // the pursuit and the pursuit continues through it.
+        //
+        // What no source gives is how often it can strike. A swing timer's worth is the
+        // assumption here, isolated in StrikeCooldown with the rest of the approximations.
+        _strikeCooldown = GrandDelusions::StrikeCooldown;
     }
 
 private:
     ObjectGuid _summonerGuid;
+    uint32 _strikeCooldown;
 };
 
 void AddSC_corruption_spell_scripts()
