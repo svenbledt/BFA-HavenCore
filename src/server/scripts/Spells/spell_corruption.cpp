@@ -492,7 +492,15 @@ struct npc_corruption_thing_from_beyond : ScriptedAI
             return;
         }
 
-        if (!me->IsWithinMeleeRange(player))
+        // Measure the way the chase generator measures. IsWithinMeleeRange squares the height
+        // difference into the distance, but ChaseMovementGenerator stops the Thing on a two
+        // dimensional test, so on any ground where the two differ in height the pursuit arrives
+        // and then fails its own strike check forever. That is not hypothetical: the pursuit
+        // that prompted this ended at 2d 5.72 with dz -1.34, which is 5.88 in three dimensions
+        // against a melee range of 5.08 - close enough to stand on the player, too far to touch
+        // them, until the eight seconds ran out. Heights of six and seven yards appear in the
+        // same log, so the gap is the rule here rather than the exception.
+        if (me->GetExactDist2d(player) > me->GetMeleeRange(player))
             return;
 
         // No spell exists for this hit. The whole client-side chain is 315184 -> 315186 ->

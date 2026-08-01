@@ -118,6 +118,8 @@ public:
             { "worldstate" ,   rbac::RBAC_PERM_COMMAND_DEBUG,               false, &HandleDebugWorldStateCommand,       "" },
             { "wsexpression" , rbac::RBAC_PERM_COMMAND_DEBUG,               false, &HandleDebugWSExpressionCommand,     "" },
             { "corruption",    rbac::RBAC_PERM_COMMAND_DEBUG,               false, &HandleDebugCorruptionCommand,       "" },
+            { "visualkit",     rbac::RBAC_PERM_COMMAND_DEBUG,               false, &HandleDebugVisualKitCommand,        "" },
+            { "spellvisual",   rbac::RBAC_PERM_COMMAND_DEBUG,               false, &HandleDebugSpellVisualCommand,      "" },
         };
         static std::vector<ChatCommand> commandTable =
         {
@@ -1469,6 +1471,83 @@ public:
         if (!rows)
             handler->SendSysMessage("CorruptionEffects.db2 holds no rows - no penalty can apply on this server. That is missing client data, not a core fault.");
 
+        return true;
+    }
+
+    // .debug visualkit <kitId> [kitType] [duration]
+    //
+    // Plays a SpellVisualKit on the selected unit, or on yourself with nothing selected. Which
+    // kit a piece of client art lives in is recoverable from the DB2s, but whether it draws
+    // anything - and on whom - is not: SpellVisualKitEffect points at effect ids well past the
+    // end of SpellVisualEffectName, so the table it indexes is one the client keeps to itself.
+    // That leaves the question answerable only in front of the client, and answering it by
+    // rebuilding the server once per candidate is the slow way round.
+    static bool HandleDebugVisualKitCommand(ChatHandler* handler, char const* args)
+    {
+        if (!*args)
+            return false;
+
+        char* kitIdStr = strtok((char*)args, " ");
+        if (!kitIdStr)
+            return false;
+
+        char* kitTypeStr = strtok(nullptr, " ");
+        char* durationStr = strtok(nullptr, " ");
+
+        uint32 const kitId = uint32(atoi(kitIdStr));
+        uint32 const kitType = kitTypeStr ? uint32(atoi(kitTypeStr)) : 0;
+        uint32 const duration = durationStr ? uint32(atoi(durationStr)) : 0;
+
+        Unit* target = handler->getSelectedUnit();
+        if (!target)
+            target = handler->GetSession()->GetPlayer();
+
+        if (!target)
+        {
+            handler->SendSysMessage(LANG_SELECT_CHAR_OR_CREATURE);
+            handler->SetSentErrorMessage(true);
+            return false;
+        }
+
+        target->SendPlaySpellVisualKit(kitId, kitType, duration);
+        handler->PSendSysMessage("Sent SpellVisualKit %u (type %u, duration %u) on %s.",
+            kitId, kitType, duration, target->GetName().c_str());
+        return true;
+    }
+
+    // .debug spellvisual <spellVisualId> [travelSpeed]
+    //
+    // Plays a whole SpellVisual on the selected unit as both source and target, which makes the
+    // client walk the visual's own SpellVisualEvent chain - every kit at its recorded offset -
+    // rather than the caller having to send each kit and reproduce the timing by hand.
+    static bool HandleDebugSpellVisualCommand(ChatHandler* handler, char const* args)
+    {
+        if (!*args)
+            return false;
+
+        char* visualIdStr = strtok((char*)args, " ");
+        if (!visualIdStr)
+            return false;
+
+        char* speedStr = strtok(nullptr, " ");
+
+        uint32 const visualId = uint32(atoi(visualIdStr));
+        float const travelSpeed = speedStr ? float(atof(speedStr)) : 0.0f;
+
+        Unit* target = handler->getSelectedUnit();
+        if (!target)
+            target = handler->GetSession()->GetPlayer();
+
+        if (!target)
+        {
+            handler->SendSysMessage(LANG_SELECT_CHAR_OR_CREATURE);
+            handler->SetSentErrorMessage(true);
+            return false;
+        }
+
+        target->SendPlaySpellVisual(target->GetGUID(), visualId, 0, 0, travelSpeed);
+        handler->PSendSysMessage("Sent SpellVisual %u on %s, source and target both the unit, travel speed %.2f.",
+            visualId, target->GetName().c_str(), travelSpeed);
         return true;
     }
 
