@@ -343,16 +343,26 @@ struct npc_corruption_thing_from_beyond : ScriptedAI
         // The clone has to be a real aura, not just a display id. WorldSession::
         // HandleMirrorImageDataRequest (SpellHandler.cpp:534) answers the client's request for
         // the copy's gear and features only if the unit actually carries SPELL_AURA_CLONE_CASTER,
-        // and it reads the appearance off that aura's caster - so the player must cast it, and
-        // setting UNIT_FLAG2_MIRROR_IMAGE by hand would leave the client asking a question
+        // and it reads the appearance off that aura's caster - so the player must be the caster,
+        // and setting UNIT_FLAG2_MIRROR_IMAGE by hand would leave the client asking a question
         // nothing answers. 60352 is the core's generic Clone Caster: one effect, aura 247, no
-        // duration, no script attached, and already used this exact way by mage Mirror Image
-        // (spell_mage.cpp:2638) and by the Amalgam of Souls echoes.
+        // duration, no script attached, already used this way by mage Mirror Image
+        // (spell_mage.cpp:2638) and the Amalgam of Souls echoes.
+        //
+        // It is applied rather than cast, and that part is not a shortcut. Clone Caster is a
+        // positive aura and this summon is hostile - SummonProperties 4793 sets faction 14 over
+        // the template's friendly 35 - so CheckCast answers SPELL_FAILED_BAD_TARGETS. Spell.cpp
+        // :3075 forgives exactly that result, but only under TRIGGERED_IGNORE_TARGET_CHECK,
+        // which is 0x00100000 and therefore outside TRIGGERED_FULL_MASK's 0x0007FFFF: the header
+        // files it under "debug flags (used with .cast triggered commands)", so CastSpell(...,
+        // true) cannot reach it and .cast 60352 triggered can, which is why the two disagree.
+        // AddAura skips CheckCast entirely and screens only for immunity, and 161895 carries
+        // mechanic_immune_mask 0 with every unit_flags field at 0, so nothing there can refuse it.
         //
         // Nothing in the corruption chain does this - 315184 is a bare proc trigger and 315186 a
         // bare summon - so retail drove it from creature data the client never shipped, the same
         // as the contact damage below.
-        player->CastSpell(me, GrandDelusions::CloneCasterSpell, true);
+        player->AddAura(GrandDelusions::CloneCasterSpell, me);
 
         // Level the Thing to its summoner. GetEffectiveResistChance adds
         // (victim level - attacker level) * 5 resistance (Unit.cpp:1861), so a Thing below its
