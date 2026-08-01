@@ -277,6 +277,7 @@ class spell_corruption_eye_of_corruption : public SpellScript
 // are isolated so they can be retuned without touching the logic.
 namespace GrandDelusions
 {
+    constexpr uint32 ContainerSpell       = 315184;  // the debuff the player carries
     constexpr float Threshold             = 40.0f;   // CorruptionEffects.db2 MinCorruption
     constexpr float SpeedRateAtThreshold  = 0.75f;   // 5.25 yd/s against a player's 7.0
     constexpr float SpeedRatePerPoint     = 0.0125f; // reaches parity at 60, overtakes above
@@ -335,16 +336,38 @@ struct npc_corruption_thing_from_beyond : ScriptedAI
             return;
 
         // No spell exists for this hit. The whole client-side chain is 315184 -> 315186 ->
-        // summon, and 315186 has exactly one effect, so retail drove the contact damage from
-        // creature data the client never shipped. Dealing it directly is the honest stand-in;
-        // if the real spell ever turns up, this becomes a CastSpell and the magnitude moves
-        // into the script for that spell.
+        // summon; 315186 has exactly one effect, neither creature carries a spell in
+        // creature_template.spell1-8 or creature_template_spell, and nothing in the 315100-315300
+        // range is a plausible contact hit. Retail drove this from creature data the client
+        // never shipped, so the magnitude stays a script constant.
+        //
+        // The hit is still reported as 315184 rather than dealt anonymously. An earlier version
+        // called DealDamage directly, which writes health and sends nothing: the player was
+        // killed by an attack that never appeared in their combat log. Going through
+        // SpellNonMeleeDamage fixes that and is the more correct path anyway - the raw call
+        // also bypassed absorbs, resistances and every damage-taken modifier, so a shield or a
+        // defensive cooldown did nothing against it. CalculateSpellDamageTaken applies those,
+        // which is what makes a near-lethal hit survivable rather than an unconditional execute.
+        SpellInfo const* damageSpell = sSpellMgr->GetSpellInfo(GrandDelusions::ContainerSpell);
+        if (!damageSpell)
+        {
+            me->DespawnOrUnsummon();
+            return;
+        }
+
         uint32 const damage = CalculatePct(player->GetMaxHealth(), GrandDelusions::DamagePctOfMaxHealth);
 
-        TC_LOG_DEBUG("scripts.corruption", "Thing From Beyond: reached %s, dealing %u of %u max health",
-            _summonerGuid.ToString().c_str(), damage, uint32(player->GetMaxHealth()));
+        SpellNonMeleeDamage damageInfo(me, player, damageSpell->Id,
+            damageSpell->GetSpellXSpellVisualId(me), SPELL_SCHOOL_MASK_SHADOW);
+        me->CalculateSpellDamageTaken(&damageInfo, int32(damage), damageSpell);
 
-        me->DealDamage(player, damage, nullptr, DIRECT_DAMAGE, SPELL_SCHOOL_MASK_SHADOW);
+        TC_LOG_DEBUG("scripts.corruption", "Thing From Beyond: reached %s, dealing %u of %u max health "
+            "(%u before mitigation, %u absorbed, %u resisted)",
+            _summonerGuid.ToString().c_str(), damageInfo.damage, uint32(player->GetMaxHealth()),
+            damage, damageInfo.absorb, damageInfo.resist);
+
+        me->SendSpellNonMeleeDamageLog(&damageInfo);
+        me->DealSpellDamage(&damageInfo, false);
 
         // One hit and it is spent - it does not linger to hit again inside its 8 seconds.
         me->DespawnOrUnsummon();
