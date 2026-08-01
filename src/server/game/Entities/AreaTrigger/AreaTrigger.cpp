@@ -375,6 +375,45 @@ void AreaTrigger::SetDuration(int32 newDuration)
     SetUpdateFieldValue(m_values.ModifyValue(&AreaTrigger::m_areaTriggerData).ModifyValue(&UF::AreaTriggerData::Duration), std::max(newDuration, 0));
 }
 
+// OverrideScaleCurve is the client's per-instance size override for an areatrigger, and until
+// now nothing in this core ever wrote it - AreaTrigger::Create fills in ExtraScaleCurve from
+// the misc template and leaves this one default-constructed, so every trigger was drawn at
+// exactly the size its template describes. That is fine while spells keep a fixed shape, but
+// it leaves a script that needs to resize one no way to tell the client, which is how the Eye
+// of Corruption ended up damaging a radius the player could not see.
+//
+// The curve is two points and an interpolation mode packed the way AreaTriggerScaleInfo lays
+// them out. Both points carry the same scale, so the mode does not matter to the result and
+// the value holds steady for the trigger's whole life; Linear is used because it needs no
+// special handling anywhere. NoData stays clear - that bit is what tells the client to ignore
+// the points entirely, and it is exactly what the misc template default sets to keep
+// ExtraScaleCurve inert.
+void AreaTrigger::SetOverrideScaleCurve(float overrideScale)
+{
+    AreaTriggerScaleInfo curve;
+    curve.Data.Structured.CurveParameters.NoData = 0;
+    curve.Data.Structured.CurveParameters.InterpolationMode = 0; // Linear
+    curve.Data.Structured.CurveParameters.FirstPointOffset = 0;
+    curve.Data.Structured.CurveParameters.PointCount = 2;
+
+    auto scaleCurve = m_values.ModifyValue(&AreaTrigger::m_areaTriggerData).ModifyValue(&UF::AreaTriggerData::OverrideScaleCurve);
+    SetUpdateFieldValue(scaleCurve.ModifyValue(&UF::ScaleCurve::StartTimeOffset), 0u);
+    SetUpdateFieldValue(scaleCurve.ModifyValue(&UF::ScaleCurve::Points, 0), Position(0.0f, overrideScale));
+    SetUpdateFieldValue(scaleCurve.ModifyValue(&UF::ScaleCurve::Points, 1), Position(1.0f, overrideScale));
+    SetUpdateFieldValue(scaleCurve.ModifyValue(&UF::ScaleCurve::ParameterCurve), curve.Data.Raw[5]);
+    SetUpdateFieldValue(scaleCurve.ModifyValue(&UF::ScaleCurve::OverrideActive), true);
+}
+
+void AreaTrigger::ClearOverrideScaleCurve()
+{
+    auto scaleCurve = m_values.ModifyValue(&AreaTrigger::m_areaTriggerData).ModifyValue(&UF::AreaTriggerData::OverrideScaleCurve);
+    SetUpdateFieldValue(scaleCurve.ModifyValue(&UF::ScaleCurve::OverrideActive), false);
+    SetUpdateFieldValue(scaleCurve.ModifyValue(&UF::ScaleCurve::StartTimeOffset), 0u);
+    SetUpdateFieldValue(scaleCurve.ModifyValue(&UF::ScaleCurve::ParameterCurve), 0u);
+    SetUpdateFieldValue(scaleCurve.ModifyValue(&UF::ScaleCurve::Points, 0), Position());
+    SetUpdateFieldValue(scaleCurve.ModifyValue(&UF::ScaleCurve::Points, 1), Position());
+}
+
 GuidUnorderedSet const AreaTrigger::GetInsidePlayers() const
 {
     GuidUnorderedSet insidePlayers;
