@@ -388,9 +388,15 @@ struct npc_corruption_thing_from_beyond : ScriptedAI
             GrandDelusions::SpeedRateAtThreshold
                 + std::max(0.0f, corruption - GrandDelusions::Threshold) * GrandDelusions::SpeedRatePerPoint);
 
+        // Report whether the clone took, rather than leaving it to be judged by eye. A cast that
+        // fails CheckCast is silent, and the failure looks identical to a working clone of an
+        // invisible player - so the log carries the two facts that separate them: the aura is on
+        // the Thing, and its display id is now the player's rather than the template's 11686.
         TC_LOG_DEBUG("scripts.corruption", "Thing From Beyond: spawned for %s at corruption %.1f, "
-            "speed rate %.2f, %.1f yards away",
-            _summonerGuid.ToString().c_str(), corruption, rate, me->GetExactDist2d(player));
+            "speed rate %.2f, %.1f yards away, clone %s (display %u, player %u, native %u)",
+            _summonerGuid.ToString().c_str(), corruption, rate, me->GetExactDist2d(player),
+            me->HasAuraType(SPELL_AURA_CLONE_CASTER) ? "applied" : "MISSING",
+            me->GetDisplayId(), player->GetDisplayId(), me->GetNativeDisplayId());
 
         me->SetSpeedRate(MOVE_RUN, rate);
         me->GetMotionMaster()->MoveChase(player);
